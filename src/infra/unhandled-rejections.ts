@@ -117,6 +117,46 @@ export function isTransientNetworkError(err: unknown): boolean {
   return false;
 }
 
+/**
+ * Known transient uncaught exception patterns that shouldn't crash the gateway.
+ * These are typically bugs in dependencies or Node.js internals that occur during
+ * race conditions with socket cleanup.
+ */
+const TRANSIENT_EXCEPTION_PATTERNS = [
+  // undici TLS session resumption race condition
+  // https://github.com/nodejs/undici/issues - socket destroyed before setSession called
+  {
+    type: "TypeError",
+    messageIncludes: "Cannot read properties of null (reading 'setSession')",
+    stackIncludes: "TLSSocket.setSession",
+  },
+  // undici socket cleanup race
+  {
+    type: "TypeError",
+    messageIncludes: "Cannot read properties of null (reading 'destroyed')",
+    stackIncludes: "undici",
+  },
+];
+
+/**
+ * Checks if an uncaught exception is a known transient error that shouldn't crash.
+ * These are race conditions in dependencies (like undici) that are non-fatal.
+ */
+export function isTransientUncaughtException(err: unknown): boolean {
+  if (!err || typeof err !== "object") return false;
+
+  const errName = "name" in err ? String(err.name) : "";
+  const errMessage = "message" in err ? String(err.message) : "";
+  const errStack = "stack" in err ? String(err.stack) : "";
+
+  return TRANSIENT_EXCEPTION_PATTERNS.some(
+    (pattern) =>
+      errName === pattern.type &&
+      errMessage.includes(pattern.messageIncludes) &&
+      errStack.includes(pattern.stackIncludes),
+  );
+}
+
 export function registerUnhandledRejectionHandler(handler: UnhandledRejectionHandler): () => void {
   handlers.add(handler);
   return () => {

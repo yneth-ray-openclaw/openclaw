@@ -171,7 +171,44 @@ const blockedEnvKeys = new Set([
   "RUBYOPT",
 ]);
 
-const blockedEnvPrefixes = ["DYLD_", "LD_"];
+// Environment variable prefixes that should never be passed to agent processes.
+// These prevent code injection attacks and API key leakage.
+const blockedEnvPrefixes = [
+  "DYLD_",
+  "LD_",
+  // Block all API keys and tokens from leaking to agent environment
+  "ANTHROPIC_",
+  "OPENAI_",
+  "GOOGLE_",
+  "AZURE_",
+  "AWS_",
+  "GITHUB_",
+  "GITLAB_",
+  "HUGGING",
+  "REPLICATE_",
+  "COHERE_",
+  "MISTRAL_",
+  "GROQ_",
+  "PERPLEXITY_",
+  "TOGETHER_",
+  "ANYSCALE_",
+  "FIREWORKS_",
+  "DEEPINFRA_",
+  "OPENCLAW_GATEWAY_TOKEN",
+  "OPENCLAW_GATEWAY_PASSWORD",
+];
+
+// Additional specific keys to block (exact match, case-insensitive)
+const blockedEnvKeysForSecurity = new Set([
+  "API_KEY",
+  "API_SECRET",
+  "SECRET_KEY",
+  "ACCESS_TOKEN",
+  "AUTH_TOKEN",
+  "BEARER_TOKEN",
+  "PRIVATE_KEY",
+  "CLIENT_SECRET",
+]);
 
 class SkillBinsCache {
   private bins = new Set<string>();
@@ -203,13 +240,46 @@ class SkillBinsCache {
   }
 }
 
+/**
+ * Checks if an environment variable key should be blocked from agent processes.
+ */
+function isBlockedEnvKey(key: string): boolean {
+  const upper = key.toUpperCase();
+  if (blockedEnvKeys.has(upper)) {
+    return true;
+  }
+  if (blockedEnvKeysForSecurity.has(upper)) {
+    return true;
+  }
+  if (blockedEnvPrefixes.some((prefix) => upper.startsWith(prefix.toUpperCase()))) {
+    return true;
+  }
+  // Block any key containing common secret patterns
+  if (
+    upper.includes("_KEY") ||
+    upper.includes("_TOKEN") ||
+    upper.includes("_SECRET") ||
+    upper.includes("_PASSWORD") ||
+    upper.includes("_CREDENTIAL")
+  ) {
+    return true;
+  }
+  return false;
+}
+
 function sanitizeEnv(
   overrides?: Record<string, string> | null,
 ): Record<string, string> | undefined {
   if (!overrides) {
     return undefined;
   }
-  const merged = { ...process.env } as Record<string, string>;
+  // Start with process.env but filter out sensitive keys
+  const merged: Record<string, string> = {};
+  for (const [key, value] of Object.entries(process.env)) {
+    if (value !== undefined && !isBlockedEnvKey(key)) {
+      merged[key] = value;
+    }
+  }
   const basePath = process.env.PATH ?? DEFAULT_NODE_PATH;
   for (const [rawKey, value] of Object.entries(overrides)) {
     const key = rawKey.trim();
@@ -232,10 +302,7 @@ function sanitizeEnv(
       }
       continue;
     }
-    if (blockedEnvKeys.has(upper)) {
-      continue;
-    }
-    if (blockedEnvPrefixes.some((prefix) => upper.startsWith(prefix))) {
+    if (isBlockedEnvKey(key)) {
       continue;
     }
     merged[key] = value;
