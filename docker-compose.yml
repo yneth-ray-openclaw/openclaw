@@ -16,6 +16,8 @@ services:
       - "${OPENCLAW_BRIDGE_PORT:-18790}:18790"
     init: true
     restart: unless-stopped
+    networks:
+      - openclaw_net
     command:
       [
         "node",
@@ -40,7 +42,14 @@ services:
     volumes:
       - ${OPENCLAW_CONFIG_DIR}:/home/node/.openclaw
       - ${OPENCLAW_WORKSPACE_DIR}:/home/node/.openclaw/workspace
+    networks:
+      - openclaw_net
     stdin_open: true
     tty: true
     init: true
     entrypoint: ["node", "dist/index.js"]
+    depends_on:
+      - openclaw-gateway
+
+networks:
+  openclaw_net:

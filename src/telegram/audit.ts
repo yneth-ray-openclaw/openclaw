@@ -1,7 +1,6 @@
 import type { TelegramGroupConfig } from "../config/types.js";
+import { resolveApiRoot } from "./api-root.js";
 import { makeProxyFetch } from "./proxy.js";
-
-const TELEGRAM_API_BASE = "https://api.telegram.org";
 
 export type TelegramGroupMembershipAuditEntry = {
   chatId: string;
@@ -88,6 +87,7 @@ export async function auditTelegramGroupMembership(params: {
   botId: number;
   groupIds: string[];
   proxyUrl?: string;
+  apiRoot?: string;
   timeoutMs: number;
 }): Promise<TelegramGroupMembershipAudit> {
   const started = Date.now();
@@ -104,7 +104,8 @@ export async function auditTelegramGroupMembership(params: {
   }
 
   const fetcher = params.proxyUrl ? makeProxyFetch(params.proxyUrl) : fetch;
-  const base = `${TELEGRAM_API_BASE}/bot${token}`;
+  const baseUrl = resolveApiRoot({ apiRoot: params.apiRoot });
+  const base = `${baseUrl}/bot${token}`;
   const groups: TelegramGroupMembershipAuditEntry[] = [];
 
   for (const chatId of params.groupIds) {

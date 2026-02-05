@@ -1,0 +1,18 @@
+services:
+  api-proxy:
+    build:
+      context: ./docker/api-proxy
+    environment:
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY}
+      TELEGRAM_BOT_TOKEN: ${TELEGRAM_BOT_TOKEN}
+    networks:
+      - openclaw_net
+    restart: unless-stopped
+
+  openclaw-gateway:
+    depends_on:
+      - api-proxy
+    environment:
+      # Override to use proxy instead of direct API access
+      OPENCLAW_ANTHROPIC_BASE_URL: http://api-proxy:8080
+      OPENCLAW_TELEGRAM_API_ROOT: http://api-proxy:8081

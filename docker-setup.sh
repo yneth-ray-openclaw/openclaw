@@ -4,9 +4,11 @@ set -euo pipefail
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 COMPOSE_FILE="$ROOT_DIR/docker-compose.yml"
 EXTRA_COMPOSE_FILE="$ROOT_DIR/docker-compose.extra.yml"
+PROXY_COMPOSE_FILE="$ROOT_DIR/docker-compose.proxy.yml"
 IMAGE_NAME="${OPENCLAW_IMAGE:-openclaw:local}"
 EXTRA_MOUNTS="${OPENCLAW_EXTRA_MOUNTS:-}"
 HOME_VOLUME_NAME="${OPENCLAW_HOME_VOLUME:-}"
+USE_PROXY="${OPENCLAW_USE_PROXY:-}"
 
 require_cmd() {
   if ! command -v "$1" >/dev/null 2>&1; then
@@ -36,6 +38,7 @@ export OPENCLAW_IMAGE="$IMAGE_NAME"
 export OPENCLAW_DOCKER_APT_PACKAGES="${OPENCLAW_DOCKER_APT_PACKAGES:-}"
 export OPENCLAW_EXTRA_MOUNTS="$EXTRA_MOUNTS"
 export OPENCLAW_HOME_VOLUME="$HOME_VOLUME_NAME"
+export OPENCLAW_USE_PROXY="$USE_PROXY"
 
 if [[ -z "${OPENCLAW_GATEWAY_TOKEN:-}" ]]; then
   if command -v openssl >/dev/null 2>&1; then
@@ -114,6 +117,20 @@ if [[ -n "$HOME_VOLUME_NAME" || ${#VALID_MOUNTS[@]} -gt 0 ]]; then
   write_extra_compose "$HOME_VOLUME_NAME" "${VALID_MOUNTS[@]}"
   COMPOSE_FILES+=("$EXTRA_COMPOSE_FILE")
 fi
+
+# Proxy mode: adds nginx reverse proxy for Anthropic API and Telegram API
+# Keeps API secrets out of the main OpenClaw containers
+if [[ -n "$USE_PROXY" && "$USE_PROXY" != "0" && "$USE_PROXY" != "false" ]]; then
+  if [[ ! -f "$PROXY_COMPOSE_FILE" ]]; then
+    echo "Error: Proxy compose file not found: $PROXY_COMPOSE_FILE" >&2
+    exit 1
+  fi
+  COMPOSE_FILES+=("$PROXY_COMPOSE_FILE")
+  # Export proxy-related env vars (will be read from .env or environment)
+  export ANTHROPIC_API_KEY="${ANTHROPIC_API_KEY:-}"
+  export TELEGRAM_BOT_TOKEN="${TELEGRAM_BOT_TOKEN:-}"
+fi
+
 for compose_file in "${COMPOSE_FILES[@]}"; do
   COMPOSE_ARGS+=("-f" "$compose_file")
 done
@@ -158,17 +175,26 @@ upsert_env() {
   mv "$tmp" "$file"
 }
 
-upsert_env "$ENV_FILE" \
-  OPENCLAW_CONFIG_DIR \
-  OPENCLAW_WORKSPACE_DIR \
-  OPENCLAW_GATEWAY_PORT \
-  OPENCLAW_BRIDGE_PORT \
-  OPENCLAW_GATEWAY_BIND \
-  OPENCLAW_GATEWAY_TOKEN \
-  OPENCLAW_IMAGE \
-  OPENCLAW_EXTRA_MOUNTS \
-  OPENCLAW_HOME_VOLUME \
+ENV_KEYS=(
+  OPENCLAW_CONFIG_DIR
+  OPENCLAW_WORKSPACE_DIR
+  OPENCLAW_GATEWAY_PORT
+  OPENCLAW_BRIDGE_PORT
+  OPENCLAW_GATEWAY_BIND
+  OPENCLAW_GATEWAY_TOKEN
+  OPENCLAW_IMAGE
+  OPENCLAW_EXTRA_MOUNTS
+  OPENCLAW_HOME_VOLUME
   OPENCLAW_DOCKER_APT_PACKAGES
+  OPENCLAW_USE_PROXY
+)
+
+# Add proxy-specific env vars when proxy mode is enabled
+if [[ -n "$USE_PROXY" && "$USE_PROXY" != "0" && "$USE_PROXY" != "false" ]]; then
+  ENV_KEYS+=(ANTHROPIC_API_KEY TELEGRAM_BOT_TOKEN)
+fi
+
+upsert_env "$ENV_FILE" "${ENV_KEYS[@]}"
 
 echo "==> Building Docker image: $IMAGE_NAME"
 docker build \
@@ -186,7 +212,11 @@ echo "  - Gateway token: $OPENCLAW_GATEWAY_TOKEN"
 echo "  - Tailscale exposure: Off"
 echo "  - Install Gateway daemon: No"
 echo ""
-docker compose "${COMPOSE_ARGS[@]}" run --rm openclaw-cli onboard --no-install-daemon
+docker compose "${COMPOSE_ARGS[@]}" run --rm openclaw-cli onboard \
+  --no-install-daemon \
+  --gateway-token "$OPENCLAW_GATEWAY_TOKEN" \
+  --gateway-bind lan \
+  --gateway-auth token
 
 echo ""
 echo "==> Provider setup (optional)"
@@ -208,7 +238,13 @@ echo "Access from tailnet devices via the host's tailnet IP."
 echo "Config: $OPENCLAW_CONFIG_DIR"
 echo "Workspace: $OPENCLAW_WORKSPACE_DIR"
 echo "Token: $OPENCLAW_GATEWAY_TOKEN"
+if [[ -n "$USE_PROXY" && "$USE_PROXY" != "0" && "$USE_PROXY" != "false" ]]; then
+  echo "Proxy: enabled (api-proxy container holds API secrets)"
+fi
 echo ""
 echo "Commands:"
 echo "  ${COMPOSE_HINT} logs -f openclaw-gateway"
 echo "  ${COMPOSE_HINT} exec openclaw-gateway node dist/index.js health --token \"$OPENCLAW_GATEWAY_TOKEN\""
+if [[ -n "$USE_PROXY" && "$USE_PROXY" != "0" && "$USE_PROXY" != "false" ]]; then
+  echo "  ${COMPOSE_HINT} logs api-proxy"
+fi
