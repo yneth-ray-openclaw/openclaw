@@ -1,0 +1,55 @@
+# OpenClaw API Proxy Configuration
+# 
+# This adds an nginx proxy service that handles authentication for external APIs.
+# API keys/tokens stay in the proxy - agents access APIs without seeing credentials.
+#
+# Usage:
+#   docker compose -f docker-compose.yml -f docker-compose.proxy.yml up -d
+#
+# Or merge into docker-compose.override.yml for automatic inclusion.
+
+services:
+  api-proxy:
+    build:
+      context: ./docker/api-proxy
+      dockerfile: Dockerfile
+    environment:
+      # Add your API keys here or in .env file
+      # These are ONLY visible to the proxy, not to agents
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+      TELEGRAM_BOT_TOKEN: ${TELEGRAM_BOT_TOKEN:-}
+      BRAVE_API_KEY: ${BRAVE_API_KEY:-}
+      GITHUB_TOKEN: ${GITHUB_TOKEN:-}
+    ports:
+      # Expose health check port (optional, for debugging)
+      - "${API_PROXY_HEALTH_PORT:-18780}:8080"
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "wget", "-q", "--spider", "http://localhost:8080/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    networks:
+      - openclaw-internal
+
+  # Modify the gateway to use the proxy
+  openclaw-gateway:
+    environment:
+      # Override API endpoints to use proxy (agents see these, but no keys)
+      ANTHROPIC_BASE_URL: http://api-proxy:8081
+      TELEGRAM_API_BASE: http://api-proxy:8082
+      BRAVE_SEARCH_BASE_URL: http://api-proxy:8083
+      GITHUB_API_BASE: http://api-proxy:8084
+      # Git operations use this for HTTP clone/push
+      GIT_PROXY_URL: http://api-proxy:8085
+      # Clear any direct API keys from agent environment
+      # (The proxy handles auth, agents don't need keys)
+    depends_on:
+      api-proxy:
+        condition: service_healthy
+    networks:
+      - openclaw-internal
+
+networks:
+  openclaw-internal:
+    driver: bridge

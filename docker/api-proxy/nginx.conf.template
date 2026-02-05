@@ -1,0 +1,201 @@
+worker_processes auto;
+error_log /var/log/nginx/error.log warn;
+pid /var/run/nginx.pid;
+
+events {
+    worker_connections 1024;
+}
+
+http {
+    include /etc/nginx/mime.types;
+    default_type application/octet-stream;
+
+    log_format main '$remote_addr - $remote_user [$time_local] "$request" '
+                    '$status $body_bytes_sent "$http_referer" '
+                    '"$http_user_agent" "$http_x_forwarded_for"';
+
+    access_log /var/log/nginx/access.log main;
+    sendfile on;
+    keepalive_timeout 65;
+
+    # Increase buffer sizes for API responses
+    proxy_buffer_size 128k;
+    proxy_buffers 4 256k;
+    proxy_busy_buffers_size 256k;
+
+    # ============================================================
+    # Anthropic API Proxy
+    # Internal: http://api-proxy:8081
+    # Forwards to: https://api.anthropic.com
+    # ============================================================
+    server {
+        listen 8081;
+        server_name api-proxy;
+
+        location / {
+            # Only allow if ANTHROPIC_API_KEY is configured
+            if ($anthropic_key = "") {
+                return 503 '{"error": "Anthropic API key not configured"}';
+            }
+
+            proxy_pass https://api.anthropic.com;
+            proxy_ssl_server_name on;
+            proxy_set_header Host api.anthropic.com;
+            proxy_set_header x-api-key ${ANTHROPIC_API_KEY};
+            proxy_set_header anthropic-version 2023-06-01;
+            proxy_set_header Content-Type $http_content_type;
+            proxy_set_header Accept $http_accept;
+
+            # Don't pass through any auth headers from client
+            proxy_set_header Authorization "";
+
+            # Timeouts for long-running requests (streaming)
+            proxy_read_timeout 300s;
+            proxy_connect_timeout 60s;
+            proxy_send_timeout 300s;
+
+            # Streaming support
+            proxy_buffering off;
+            proxy_cache off;
+            chunked_transfer_encoding on;
+        }
+    }
+
+    # ============================================================
+    # Telegram API Proxy
+    # Internal: http://api-proxy:8082
+    # Forwards to: https://api.telegram.org
+    # ============================================================
+    server {
+        listen 8082;
+        server_name api-proxy;
+
+        # Bot API endpoint: /bot<token>/method
+        location ~ ^/bot(.*)$ {
+            # Rewrite to inject the real token
+            rewrite ^/bot.*?/(.*)$ /bot${TELEGRAM_BOT_TOKEN}/$1 break;
+
+            proxy_pass https://api.telegram.org;
+            proxy_ssl_server_name on;
+            proxy_set_header Host api.telegram.org;
+            proxy_set_header Content-Type $http_content_type;
+
+            proxy_read_timeout 60s;
+            proxy_connect_timeout 30s;
+        }
+
+        # File download endpoint
+        location /file/ {
+            rewrite ^/file/bot.*?/(.*)$ /file/bot${TELEGRAM_BOT_TOKEN}/$1 break;
+
+            proxy_pass https://api.telegram.org;
+            proxy_ssl_server_name on;
+            proxy_set_header Host api.telegram.org;
+        }
+    }
+
+    # ============================================================
+    # Brave Search API Proxy
+    # Internal: http://api-proxy:8083
+    # Forwards to: https://api.search.brave.com
+    # ============================================================
+    server {
+        listen 8083;
+        server_name api-proxy;
+
+        location / {
+            if ($brave_key = "") {
+                return 503 '{"error": "Brave Search API key not configured"}';
+            }
+
+            proxy_pass https://api.search.brave.com;
+            proxy_ssl_server_name on;
+            proxy_set_header Host api.search.brave.com;
+            proxy_set_header X-Subscription-Token ${BRAVE_API_KEY};
+            proxy_set_header Accept application/json;
+
+            # Don't pass through any auth headers from client
+            proxy_set_header Authorization "";
+
+            proxy_read_timeout 30s;
+            proxy_connect_timeout 10s;
+        }
+    }
+
+    # ============================================================
+    # GitHub API Proxy
+    # Internal: http://api-proxy:8084
+    # Forwards to: https://api.github.com
+    # ============================================================
+    server {
+        listen 8084;
+        server_name api-proxy;
+
+        location / {
+            if ($github_token = "") {
+                return 503 '{"error": "GitHub token not configured"}';
+            }
+
+            proxy_pass https://api.github.com;
+            proxy_ssl_server_name on;
+            proxy_set_header Host api.github.com;
+            proxy_set_header Authorization "Bearer ${GITHUB_TOKEN}";
+            proxy_set_header User-Agent "OpenClaw-Proxy/1.0";
+            proxy_set_header Accept application/vnd.github+json;
+            proxy_set_header X-GitHub-Api-Version 2022-11-28;
+
+            proxy_read_timeout 60s;
+            proxy_connect_timeout 30s;
+        }
+    }
+
+    # ============================================================
+    # GitHub Git HTTP Proxy (for git clone/push/pull)
+    # Internal: http://api-proxy:8085
+    # Forwards to: https://github.com
+    # ============================================================
+    server {
+        listen 8085;
+        server_name api-proxy;
+
+        location / {
+            if ($github_token = "") {
+                return 503 'GitHub token not configured';
+            }
+
+            proxy_pass https://github.com;
+            proxy_ssl_server_name on;
+            proxy_set_header Host github.com;
+            proxy_set_header Authorization "Basic ${GITHUB_TOKEN_BASE64}";
+            proxy_set_header User-Agent "git/2.40.0";
+
+            # Git operations can be slow
+            proxy_read_timeout 300s;
+            proxy_connect_timeout 60s;
+            proxy_send_timeout 300s;
+
+            # Large repos need big buffers
+            client_max_body_size 500M;
+            proxy_request_buffering off;
+        }
+    }
+
+    # ============================================================
+    # Health Check Endpoint
+    # Internal: http://api-proxy:8080
+    # ============================================================
+    server {
+        listen 8080;
+        server_name api-proxy;
+
+        location /health {
+            return 200 '{"status": "ok", "services": ["anthropic", "telegram", "brave", "github"]}';
+            add_header Content-Type application/json;
+        }
+
+        location /status {
+            return 200 'API Proxy Running\n\nPorts:\n  8081 - Anthropic API\n  8082 - Telegram API\n  8083 - Brave Search API\n  8084 - GitHub API\n  8085 - GitHub Git (HTTP)\n';
+            add_header Content-Type text/plain;
+        }
+    }
+}
