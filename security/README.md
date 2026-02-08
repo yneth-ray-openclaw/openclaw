@@ -1,6 +1,6 @@
 # OpenClaw Security & Proxy Stack
 
-A Docker-based security monitoring and API proxy overlay for OpenClaw. Provides network IDS, container runtime security, a transparent LLM API proxy with guard hooks, an nginx-based API proxy for external services, and unified Telegram alerting — without modifying any existing OpenClaw files.
+A Docker-based security enforcement and API proxy overlay for OpenClaw. Provides network IPS (inline packet inspection with active blocking), container runtime enforcement (SIGKILL on critical violations), a transparent LLM API proxy with guard hooks, an nginx-based API proxy for external services, and unified Telegram alerting — without modifying any existing OpenClaw files.
 
 ## Architecture
 
@@ -35,7 +35,8 @@ A Docker-based security monitoring and API proxy overlay for OpenClaw. Provides 
   +---------------------+    +---------------------+
   | security-suricata   |    | security-tracee     |
   | network_mode: host  |    | privileged, pid:host|
-  | monitors docker0    |    | eBPF container mon  |
+  | IPS: NFQUEUE inline |    | enforcement: SIGKILL|
+  | DROP malicious pkts |    | kills critical viols|
   +----------+----------+    +----------+----------+
              |                          |
              v                          v
@@ -56,9 +57,38 @@ A Docker-based security monitoring and API proxy overlay for OpenClaw. Provides 
 |---------|-----------|---------|
 | **LLM Proxy** | `security-llm-proxy` | FastAPI reverse proxy for Anthropic/OpenAI. Hides API key, supports streaming, guard-ready hook point |
 | **API Proxy** | `security-api-proxy` | nginx reverse proxy for Telegram, Brave Search, GitHub API, GitHub Git. Injects auth per-service |
-| **Suricata** | `security-suricata` | Network IDS — monitors docker0 bridge with ET Open rules |
-| **Tracee** | `security-tracee` | Runtime security — eBPF-based container monitoring |
+| **Suricata** | `security-suricata` | Network IPS — inline NFQUEUE inspection on FORWARD chain, drops malicious packets |
+| **Tracee** | `security-tracee` | Runtime enforcement — eBPF-based container monitoring with SIGKILL on critical violations |
 | **Alerter** | `security-alerter` | Aggregates Suricata and Tracee alerts, sends to Telegram |
+
+## Active Enforcement
+
+Both Suricata and Tracee run in **active enforcement mode** — they detect AND block threats in real time.
+
+### Suricata IPS (Inline Packet Inspection)
+
+Suricata runs as an inline IPS using NFQUEUE. All FORWARD-chain traffic (container-to-container and container-to-internet) passes through Suricata for inspection. Rules with `drop` action will block matching packets.
+
+- **FORWARD chain only** — host INPUT/OUTPUT traffic (SSH, docker daemon) is never affected
+- **Fail-closed** — if Suricata crashes, NFQUEUE packets have no consumer and traffic is blocked. The `restart: unless-stopped` policy ensures quick recovery.
+- Alerts are still written to `eve.json` for both `alert` and `drop` actions
+
+### Tracee Enforcement (SIGKILL)
+
+Tracee enforces critical security policies by immediately killing offending processes:
+
+| Event | Action | Rationale |
+|-------|--------|-----------|
+| `ptrace` | SIGKILL | Process injection — almost always malicious in containers |
+| `init_module` | SIGKILL | Kernel module loading from container = container escape |
+| `finit_module` | SIGKILL | Same (file-based variant) |
+| `setuid` | SIGKILL | Privilege escalation — OpenClaw runs as `node`, no legit use |
+| `setgid` | SIGKILL | Same |
+| `security_file_open` | log only | Too broad to kill — many legitimate file opens |
+| `sched_process_exec` | log only | Would break the container |
+| `net_packet_ipv4` | log only | Network monitoring only |
+
+All events (both enforced and monitored) still generate log output for the alerter.
 
 ## Port Reference
 
@@ -178,16 +208,24 @@ curl http://security-api-proxy:8083/user
 # Should proxy to GitHub API with Bearer token injected
 ```
 
-### Check Suricata
+### Check Suricata IPS
 ```bash
 docker compose -f docker-compose.security.yml logs security-suricata
-# Should show "engine started" and interface binding
+# Should show "IPS mode (NFQUEUE 0)" and "engine started"
+
+# Verify NFQUEUE rule is active
+docker exec security-suricata iptables -L FORWARD -n
+# Should show NFQUEUE target
 ```
 
-### Check Tracee
+### Check Tracee Enforcement
 ```bash
 docker compose -f docker-compose.security.yml logs security-tracee
-# Should show policy loaded and initialization messages
+# Should show policy loaded with enforcement actions
+
+# Test enforcement: ptrace attempt should be killed
+docker exec openclaw-gateway strace -p 1
+# Should be immediately terminated by Tracee's sigkill action
 ```
 
 ### Trigger test alerts
@@ -283,9 +321,10 @@ This means OpenClaw must be started first (or the network created manually) so i
 
 ## Troubleshooting
 
-### Suricata not capturing traffic
-- Verify the interface name: `docker network ls` — the bridge network uses `docker0` by default
-- On some systems the interface may be named differently; update the `command` in `docker-compose.security.yml`
+### Suricata not blocking traffic
+- Verify NFQUEUE is active: `docker exec security-suricata iptables -L FORWARD -n` — should show NFQUEUE rule
+- Check Suricata logs: `docker compose -f docker-compose.security.yml logs security-suricata` — should show "IPS mode (NFQUEUE 0)"
+- If all traffic is blocked, Suricata may have crashed. Check logs and restart: `docker compose -f docker-compose.security.yml restart security-suricata`
 
 ### Tracee errors
 - Requires Linux kernel 5.4+ with eBPF support
