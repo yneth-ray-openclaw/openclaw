@@ -22,6 +22,13 @@ sed 's|HOME_NET:.*".*"|HOME_NET: "[172.16.0.0/12]"|' "$CONFIG" > "$CONFIG.tmp" &
 # Set default-log-dir
 sed 's|default-log-dir:.*|default-log-dir: /var/log/suricata/|' "$CONFIG" > "$CONFIG.tmp" && mv "$CONFIG.tmp" "$CONFIG"
 
+# Enable IPS mode (NFQUEUE) — fail-closed: block traffic if Suricata is down
+sed -i 's/# *nfq:/nfq:/' "$CONFIG"
+sed -i '/nfq:/,/fail-open:/ s/fail-open: .*/fail-open: no/' "$CONFIG"
+
+# Enable stream inline so Suricata honors drop rules in IPS mode
+sed -i '/^stream:/,/^[^ ]/ s/inline: .*/inline: auto/' "$CONFIG"
+
 echo "[Suricata] Updating rules via suricata-update..."
 docker run --rm \
   -v "$RULES_DIR:/var/lib/suricata/rules" \
