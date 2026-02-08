@@ -1,0 +1,83 @@
+services:
+  security-suricata:
+    image: jasonish/suricata:latest
+    container_name: security-suricata
+    network_mode: host
+    cap_add:
+      - NET_ADMIN
+      - NET_RAW
+      - SYS_NICE
+    volumes:
+      - ./suricata/etc:/etc/suricata:ro
+      - ./suricata/rules:/var/lib/suricata/rules:ro
+      - ./suricata/logs:/var/log/suricata
+    command: -i docker0 -v
+    restart: unless-stopped
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  security-tracee:
+    image: aquasec/tracee:latest
+    container_name: security-tracee
+    privileged: true
+    pid: host
+    volumes:
+      - /etc/os-release:/etc/os-release:ro
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - ./tracee/policies:/tracee/policies:ro
+      - /tmp/tracee:/tmp/tracee
+    command:
+      - --containers
+      - --output=json
+      - --output=option:parse-arguments
+      - --policy=/tracee/policies/openclaw.yaml
+    restart: unless-stopped
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  security-llm-proxy:
+    build: ./llm-proxy
+    container_name: security-llm-proxy
+    env_file: .env.security
+    networks:
+      - security-net
+      - openclaw_default
+    ports:
+      - "8080:8080"
+    restart: unless-stopped
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  security-alerter:
+    image: alpine:3.19
+    container_name: security-alerter
+    env_file: .env.security
+    volumes:
+      - ./alerter/alert.sh:/alert.sh:ro
+      - ./suricata/logs:/var/log/suricata:ro
+      - /tmp/tracee:/tmp/tracee:ro
+    entrypoint: ["sh", "/alert.sh"]
+    depends_on:
+      - security-suricata
+      - security-tracee
+    restart: unless-stopped
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+networks:
+  security-net:
+    driver: bridge
+  openclaw_default:
+    external: true
