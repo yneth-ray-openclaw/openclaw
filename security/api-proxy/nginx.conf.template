@@ -1,0 +1,150 @@
+worker_processes auto;
+error_log /var/log/nginx/error.log warn;
+pid /var/run/nginx.pid;
+
+events {
+    worker_connections 1024;
+}
+
+http {
+    include /etc/nginx/mime.types;
+    default_type application/octet-stream;
+
+    log_format main '$remote_addr - $remote_user [$time_local] "$request" '
+                    '$status $body_bytes_sent "$http_referer" '
+                    '"$http_user_agent" "$http_x_forwarded_for"';
+
+    access_log /var/log/nginx/access.log main;
+    sendfile on;
+    keepalive_timeout 65;
+
+    # Increase buffer sizes for API responses
+    proxy_buffer_size 128k;
+    proxy_buffers 4 256k;
+    proxy_busy_buffers_size 256k;
+
+    # ============================================================
+    # Health Check Endpoint
+    # Internal: http://security-api-proxy:8080
+    # ============================================================
+    server {
+        listen 8080;
+        server_name _;
+
+        location /health {
+            return 200 '{"status":"ok","services":["telegram","brave","github-api","github-git"],"llm":"use security-llm-proxy:8080"}';
+            add_header Content-Type application/json;
+        }
+
+        location /status {
+            return 200 'OpenClaw API Proxy\n\nPorts:\n  8081 - Telegram API\n  8082 - Brave Search API\n  8083 - GitHub API\n  8084 - GitHub Git (HTTP)\n  LLM  - security-llm-proxy:8080 (separate container)\n';
+            add_header Content-Type text/plain;
+        }
+    }
+
+    # ============================================================
+    # Telegram API Proxy
+    # Internal: http://security-api-proxy:8081
+    # Forwards to: https://api.telegram.org
+    # ============================================================
+    server {
+        listen 8081;
+        server_name _;
+
+        # Bot API endpoint: /bot<token>/method
+        location ~ ^/bot(.*)$ {
+            rewrite ^/bot.*?/(.*)$ /bot${TELEGRAM_BOT_TOKEN}/$1 break;
+
+            proxy_pass https://api.telegram.org;
+            proxy_ssl_server_name on;
+            proxy_set_header Host api.telegram.org;
+            proxy_set_header Content-Type $http_content_type;
+
+            proxy_read_timeout 60s;
+            proxy_connect_timeout 30s;
+        }
+
+        # File download endpoint
+        location /file/ {
+            rewrite ^/file/bot.*?/(.*)$ /file/bot${TELEGRAM_BOT_TOKEN}/$1 break;
+
+            proxy_pass https://api.telegram.org;
+            proxy_ssl_server_name on;
+            proxy_set_header Host api.telegram.org;
+        }
+    }
+
+    # ============================================================
+    # Brave Search API Proxy
+    # Internal: http://security-api-proxy:8082
+    # Forwards to: https://api.search.brave.com
+    # ============================================================
+    server {
+        listen 8082;
+        server_name _;
+
+        location / {
+            proxy_pass https://api.search.brave.com;
+            proxy_ssl_server_name on;
+            proxy_set_header Host api.search.brave.com;
+            proxy_set_header X-Subscription-Token ${BRAVE_API_KEY};
+            proxy_set_header Accept application/json;
+
+            # Don't pass through any auth headers from client
+            proxy_set_header Authorization "";
+
+            proxy_read_timeout 30s;
+            proxy_connect_timeout 10s;
+        }
+    }
+
+    # ============================================================
+    # GitHub API Proxy
+    # Internal: http://security-api-proxy:8083
+    # Forwards to: https://api.github.com
+    # ============================================================
+    server {
+        listen 8083;
+        server_name _;
+
+        location / {
+            proxy_pass https://api.github.com;
+            proxy_ssl_server_name on;
+            proxy_set_header Host api.github.com;
+            proxy_set_header Authorization "Bearer ${GITHUB_TOKEN}";
+            proxy_set_header User-Agent "OpenClaw-Proxy/1.0";
+            proxy_set_header Accept application/vnd.github+json;
+            proxy_set_header X-GitHub-Api-Version 2022-11-28;
+
+            proxy_read_timeout 60s;
+            proxy_connect_timeout 30s;
+        }
+    }
+
+    # ============================================================
+    # GitHub Git HTTP Proxy (for git clone/push/pull)
+    # Internal: http://security-api-proxy:8084
+    # Forwards to: https://github.com
+    # ============================================================
+    server {
+        listen 8084;
+        server_name _;
+
+        location / {
+            proxy_pass https://github.com;
+            proxy_ssl_server_name on;
+            proxy_set_header Host github.com;
+            proxy_set_header Authorization "Basic ${GITHUB_TOKEN_BASE64}";
+            proxy_set_header User-Agent "git/2.40.0";
+
+            # Git operations can be slow
+            proxy_read_timeout 300s;
+            proxy_connect_timeout 60s;
+            proxy_send_timeout 300s;
+
+            # Large repos need big buffers
+            client_max_body_size 500M;
+            proxy_request_buffering off;
+        }
+    }
+}

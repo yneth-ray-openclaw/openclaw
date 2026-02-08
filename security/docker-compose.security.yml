@@ -47,10 +47,38 @@ services:
     env_file: .env.security
     networks:
       - security-net
-      - openclaw_default
+      - openclaw_net
     ports:
-      - "8080:8080"
+      - "${SECURITY_LLM_PROXY_PORT:-18790}:8080"
     restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080/health"]
+      interval: 30s
+      timeout: 5s
+      start_period: 10s
+      retries: 3
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  security-api-proxy:
+    build: ./api-proxy
+    container_name: security-api-proxy
+    env_file: .env.security
+    networks:
+      - security-net
+      - openclaw_net
+    ports:
+      - "${SECURITY_API_PROXY_PORT:-18780}:8080"
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "wget", "-q", "--spider", "http://localhost:8080/health"]
+      interval: 30s
+      timeout: 10s
+      start_period: 5s
+      retries: 3
     logging:
       driver: json-file
       options:
@@ -79,5 +107,5 @@ services:
 networks:
   security-net:
     driver: bridge
-  openclaw_default:
+  openclaw_net:
     external: true

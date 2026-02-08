@@ -5,8 +5,8 @@
 set -u
 
 # --- Configuration ---
-TG_BOT_TOKEN="${TG_BOT_TOKEN:-}"
-TG_CHAT_ID="${TG_CHAT_ID:-}"
+TELEGRAM_BOT_TOKEN="${TELEGRAM_BOT_TOKEN:-}"
+TELEGRAM_CHAT_ID="${TELEGRAM_CHAT_ID:-}"
 ALERT_MAX_PER_MINUTE="${ALERT_MAX_PER_MINUTE:-10}"
 
 SURICATA_LOG="/var/log/suricata/eve.json"
@@ -33,7 +33,7 @@ rate_limit_check() {
 # --- Telegram sender ---
 send_telegram() {
     message="$1"
-    if [ -z "$TG_BOT_TOKEN" ] || [ -z "$TG_CHAT_ID" ]; then
+    if [ -z "$TELEGRAM_BOT_TOKEN" ] || [ -z "$TELEGRAM_CHAT_ID" ]; then
         echo "[alerter] $message"
         return
     fi
@@ -41,8 +41,8 @@ send_telegram() {
         echo "[alerter] Rate limit reached, skipping alert"
         return
     fi
-    curl -s -X POST "https://api.telegram.org/bot${TG_BOT_TOKEN}/sendMessage" \
-        -d "chat_id=${TG_CHAT_ID}" \
+    curl -s -X POST "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage" \
+        -d "chat_id=${TELEGRAM_CHAT_ID}" \
         -d "parse_mode=HTML" \
         -d "text=${message}" > /dev/null 2>&1 || echo "[alerter] Failed to send Telegram message"
 }
@@ -99,7 +99,7 @@ parse_tracee() {
 
 # --- Main ---
 echo "[alerter] Starting security alerter..."
-if [ -z "$TG_BOT_TOKEN" ] || [ -z "$TG_CHAT_ID" ]; then
+if [ -z "$TELEGRAM_BOT_TOKEN" ] || [ -z "$TELEGRAM_CHAT_ID" ]; then
     echo "[alerter] WARNING: Telegram credentials not set — alerts will be printed to stdout"
 fi
 

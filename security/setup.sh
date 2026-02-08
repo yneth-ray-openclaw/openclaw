@@ -6,7 +6,7 @@ cd "$SCRIPT_DIR"
 
 # --- Banner ---
 echo "╔══════════════════════════════════════════════════╗"
-echo "║   OpenClaw Security Monitoring Stack Setup       ║"
+echo "║   OpenClaw Security & Proxy Stack Setup          ║"
 echo "╚══════════════════════════════════════════════════╝"
 echo ""
 
@@ -34,8 +34,8 @@ if docker ps --format '{{.Names}}' | grep -q openclaw-gateway; then
     echo "  [OK] openclaw-gateway is running"
 else
     echo "  [WARN] openclaw-gateway is not running."
-    echo "  The security stack can start without it, but the openclaw_default"
-    echo "  network must exist for the LLM proxy to connect."
+    echo "  The security stack can start without it, but the openclaw_net Docker"
+    echo "  network must exist. Run 'docker compose up -d' from the project root first."
     read -p "  Continue anyway? [y/N] " confirm
     if [ "${confirm,,}" != "y" ]; then
         echo "Aborted."
@@ -59,28 +59,59 @@ else
     echo "  Enter your configuration values (press Enter for defaults):"
     echo ""
 
-    read -p "  Telegram Bot Token: " TG_BOT_TOKEN
-    read -p "  Telegram Chat ID: " TG_CHAT_ID
+    # Telegram (used by alerter + api-proxy)
+    read -p "  Telegram Bot Token: " TELEGRAM_BOT_TOKEN
+    read -p "  Telegram Chat ID: " TELEGRAM_CHAT_ID
+
+    # LLM Proxy (FastAPI)
     read -p "  LLM API Key: " LLM_API_KEY
     read -p "  LLM API Base [https://api.anthropic.com]: " LLM_API_BASE
     LLM_API_BASE="${LLM_API_BASE:-https://api.anthropic.com}"
     read -p "  LLM API Provider [anthropic]: " LLM_API_PROVIDER
     LLM_API_PROVIDER="${LLM_API_PROVIDER:-anthropic}"
 
+    # Brave Search (optional)
+    echo ""
+    echo "  Optional: Brave Search API key (for web search proxy)"
+    read -p "  Brave API Key [skip]: " BRAVE_API_KEY
+    BRAVE_API_KEY="${BRAVE_API_KEY:-}"
+
+    # GitHub (optional)
+    echo ""
+    echo "  Optional: GitHub token (for API & git proxy)"
+    read -p "  GitHub Token [skip]: " GITHUB_TOKEN
+    GITHUB_TOKEN="${GITHUB_TOKEN:-}"
+
+    # Host Ports
+    read -p "  LLM Proxy Host Port [18790]: " SECURITY_LLM_PROXY_PORT
+    SECURITY_LLM_PROXY_PORT="${SECURITY_LLM_PROXY_PORT:-18790}"
+    read -p "  API Proxy Host Port [18780]: " SECURITY_API_PROXY_PORT
+    SECURITY_API_PROXY_PORT="${SECURITY_API_PROXY_PORT:-18780}"
+
     cat > .env.security <<EOF
-# Telegram Alerting
-TG_BOT_TOKEN=${TG_BOT_TOKEN}
-TG_CHAT_ID=${TG_CHAT_ID}
+# Telegram (used by alerter AND api-proxy)
+TELEGRAM_BOT_TOKEN=${TELEGRAM_BOT_TOKEN}
+TELEGRAM_CHAT_ID=${TELEGRAM_CHAT_ID}
 
 # Alert Rate Limiting
 ALERT_MAX_PER_MINUTE=10
 
-# LLM Proxy
+# LLM Proxy (FastAPI) — Anthropic/OpenAI
 LLM_API_BASE=${LLM_API_BASE}
 LLM_API_KEY=${LLM_API_KEY}
 LLM_API_PROVIDER=${LLM_API_PROVIDER}
 
-# Future: Guard service URL (uncomment when a guard is added)
+# Brave Search (optional)
+BRAVE_API_KEY=${BRAVE_API_KEY}
+
+# GitHub (optional)
+GITHUB_TOKEN=${GITHUB_TOKEN}
+
+# Host Ports
+SECURITY_LLM_PROXY_PORT=${SECURITY_LLM_PROXY_PORT}
+SECURITY_API_PROXY_PORT=${SECURITY_API_PROXY_PORT}
+
+# Future: Guard service
 # GUARD_URL=http://security-guard:8000/scan
 # GUARD_ENABLED=true
 # GUARD_THRESHOLD=0.8
@@ -115,23 +146,48 @@ echo ""
 
 # --- Health checks ---
 echo "Running health checks..."
+
+LLM_PROXY_PORT=$(grep SECURITY_LLM_PROXY_PORT .env.security 2>/dev/null | head -1 | cut -d= -f2-)
+LLM_PROXY_PORT="${LLM_PROXY_PORT:-18790}"
+
+API_PROXY_PORT=$(grep SECURITY_API_PROXY_PORT .env.security 2>/dev/null | head -1 | cut -d= -f2-)
+API_PROXY_PORT="${API_PROXY_PORT:-18780}"
+
 LLM_API_BASE_DISPLAY=$(grep LLM_API_BASE .env.security 2>/dev/null | head -1 | cut -d= -f2-)
 LLM_API_BASE_DISPLAY="${LLM_API_BASE_DISPLAY:-https://api.anthropic.com}"
 
-echo "  Waiting for LLM proxy..."
-healthy=false
+# Check LLM proxy
+echo "  Waiting for LLM proxy on port ${LLM_PROXY_PORT}..."
+llm_healthy=false
 for i in $(seq 1 15); do
-    if curl -sf http://localhost:8080/health > /dev/null 2>&1; then
-        healthy=true
+    if curl -sf "http://localhost:${LLM_PROXY_PORT}/health" > /dev/null 2>&1; then
+        llm_healthy=true
         break
     fi
     sleep 2
 done
 
-if [ "$healthy" = true ]; then
+if [ "$llm_healthy" = true ]; then
     echo "  [OK] LLM proxy is healthy"
 else
     echo "  [WARN] LLM proxy health check timed out (may still be starting)"
+fi
+
+# Check API proxy
+echo "  Waiting for API proxy on port ${API_PROXY_PORT}..."
+api_healthy=false
+for i in $(seq 1 15); do
+    if curl -sf "http://localhost:${API_PROXY_PORT}/health" > /dev/null 2>&1; then
+        api_healthy=true
+        break
+    fi
+    sleep 2
+done
+
+if [ "$api_healthy" = true ]; then
+    echo "  [OK] API proxy is healthy"
+else
+    echo "  [WARN] API proxy health check timed out (may still be starting)"
 fi
 
 echo ""
@@ -141,23 +197,27 @@ echo ""
 
 # --- Summary ---
 echo "╔══════════════════════════════════════════════════╗"
-echo "║   Security stack is running!                     ║"
+echo "║   Security & Proxy stack is running!             ║"
 echo "╚══════════════════════════════════════════════════╝"
 echo ""
 echo "Services:"
-echo "  * Suricata (Network IDS) - monitoring docker0"
-echo "  * Tracee (Runtime Security) - monitoring containers"
-echo "  * LLM Proxy - forwarding to ${LLM_API_BASE_DISPLAY}"
-echo "  * Alerter - sending alerts to Telegram"
+echo "  * Suricata (Network IDS) — monitoring docker0"
+echo "  * Tracee (Runtime Security) — monitoring containers"
+echo "  * LLM Proxy (FastAPI) — forwarding to ${LLM_API_BASE_DISPLAY}"
+echo "  * API Proxy (nginx) — Telegram, Brave, GitHub"
+echo "  * Alerter — sending alerts to Telegram"
 echo ""
-echo "Next steps:"
-echo "  1. Configure OpenClaw to use the proxy:"
-echo "     Edit ~/.openclaw/config.json5 and set baseUrl to:"
-echo "     http://security-llm-proxy:8080"
+echo "Proxy Endpoints (from inside OpenClaw containers):"
+echo "  LLM (Anthropic/OpenAI): http://security-llm-proxy:8080"
+echo "  Telegram:               http://security-api-proxy:8081"
+echo "  Brave Search:           http://security-api-proxy:8082"
+echo "  GitHub API:             http://security-api-proxy:8083"
+echo "  GitHub Git:             http://security-api-proxy:8084"
 echo ""
-echo "  2. View logs:"
-echo "     docker compose -f docker-compose.security.yml logs -f"
+echo "Host-side health checks:"
+echo "  curl http://localhost:${LLM_PROXY_PORT}/health"
+echo "  curl http://localhost:${API_PROXY_PORT}/health"
 echo ""
-echo "  3. Test the proxy:"
-echo "     curl http://localhost:8080/health"
+echo "View logs:"
+echo "  docker compose -f docker-compose.security.yml logs -f"
 echo ""
