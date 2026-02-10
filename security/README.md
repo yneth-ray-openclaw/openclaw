@@ -23,7 +23,7 @@ A Docker-based security enforcement and API proxy overlay for OpenClaw. Provides
                    |        |
      +-------------+--+  +-+----------------+
      | LLM Proxy      |  | API Proxy        |
-     | (FastAPI)       |  | (nginx)          |
+     | (FastAPI)       |  | (nginx+njs)      |
      | :8080 -> LLM    |  | :8081 Telegram   |
      | guard hooks     |  | :8082 Brave      |
      | streaming       |  | :8083 GitHub API |
@@ -50,6 +50,7 @@ A Docker-based security enforcement and API proxy overlay for OpenClaw. Provides
                | security-alerter|
                | tail -F logs    |
                | -> Telegram     |
+               | daily summary   |
                +-----------------+
 ```
 
@@ -57,11 +58,48 @@ A Docker-based security enforcement and API proxy overlay for OpenClaw. Provides
 
 | Service | Container | Purpose |
 |---------|-----------|---------|
-| **LLM Proxy** | `security-llm-proxy` | FastAPI reverse proxy for Anthropic/OpenAI. Hides API key, supports streaming, guard-ready hook point |
-| **API Proxy** | `security-api-proxy` | nginx reverse proxy for Telegram, Brave Search, GitHub API, GitHub Git, Google API, Viber. Injects auth per-service |
-| **Suricata** | `security-suricata` | Network IPS — inline NFQUEUE inspection on FORWARD chain, drops malicious packets |
+| **LLM Proxy** | `security-llm-proxy` | FastAPI reverse proxy for Anthropic/OpenAI. Hides API key, supports streaming, guard-ready hook point. Distroless Python image. |
+| **API Proxy** | `security-api-proxy` | nginx+njs reverse proxy for Telegram, Brave Search, GitHub API, GitHub Git, Google API, Viber. Injects auth per-service. Chainguard image (no shell). |
+| **Suricata** | `security-suricata` | Network IPS — inline NFQUEUE inspection on FORWARD chain, drops malicious packets. ET Open + SSLBL + etnetera/aggressive feeds. |
 | **Tracee** | `security-tracee` | Runtime enforcement — eBPF-based container monitoring with SIGKILL on critical violations |
-| **Alerter** | `security-alerter` | Aggregates Suricata and Tracee alerts, sends to Telegram |
+| **Alerter** | `security-alerter` | Aggregates Suricata and Tracee alerts, sends to Telegram. Daily traffic summary. |
+
+## Container Hardening
+
+### Minimal Base Images
+
+The proxy containers use minimal/distroless base images to reduce attack surface:
+
+- **API Proxy:** `cgr.dev/chainguard/nginx` — Chainguard's hardened nginx image with njs module. No shell, no package manager, no coreutils.
+- **LLM Proxy:** `gcr.io/distroless/python3-debian12:nonroot` — Google's distroless Python image. No shell, no package manager.
+- **Alerter:** `alpine:3.21` with only `curl` and `jq` added.
+
+Both proxy images use a shared static Go healthcheck binary instead of curl/wget for container health checks.
+
+### Why Not mTLS / Access Control Between Agent and Proxy
+
+The OpenClaw agent is the sole consumer of both proxies. mTLS, shared secrets, per-service networks, and other access control schemes between agent and proxy provide no real security benefit: if the agent is compromised, the attacker has the client certificate (or secret, or network access) too. Instead, security is provided by:
+
+- Distroless/minimal images (no tools for an attacker to use)
+- Read-only filesystems
+- Dropped capabilities (all capabilities dropped)
+- `no-new-privileges` security option
+- Rate limiting at the nginx level
+
+### Docker Compose Security Options
+
+All services have `security_opt: [no-new-privileges:true]`. The proxy and alerter containers additionally have:
+
+- `read_only: true` — filesystem is read-only (tmpfs mounts for required writable dirs)
+- `cap_drop: [ALL]` — all Linux capabilities dropped
+
+### njs-Based Token Rotation
+
+The API proxy uses nginx's njs JavaScript module to handle Google OAuth2 token rotation entirely within nginx — no shell scripts, no `curl`, no config rewrite, no `nginx -s reload`:
+
+- `js_periodic` refreshes the Google token every 45 minutes via `ngx.fetch()`
+- `js_shared_dict_zone` stores the token in nginx shared memory
+- `js_set` injects all tokens (static from env + rotating from shared dict) into `proxy_set_header` per-request
 
 ## Active Enforcement
 
@@ -91,6 +129,70 @@ Tracee enforces critical security policies by immediately killing offending proc
 | `net_packet_ipv4` | log only | Network monitoring only |
 
 All events (both enforced and monitored) still generate log output for the alerter.
+
+## Threat Intelligence & Blocking
+
+### Enabled Feeds
+
+The Suricata IPS uses multiple threat intelligence feeds:
+
+| Feed | Source | Content |
+|------|--------|---------|
+| **ET Open** | Emerging Threats | 64k+ rules covering malware, C2, exploits, policy violations |
+| **SSLBL ssl-fp-blacklist** | abuse.ch | Malicious SSL certificate fingerprints |
+| **SSLBL ja3-fingerprints** | abuse.ch | Malicious JA3 TLS client fingerprints |
+| **etnetera/aggressive** | Etnetera | Aggressive threat detection rules |
+
+### Drop Rule Categories
+
+The following rule categories are converted from `alert` to `drop` (active blocking) via `modify.conf`:
+
+| Category | Description |
+|----------|-------------|
+| `trojan-activity` | Malware/trojan communication |
+| `command-and-control` | C2 beaconing and callbacks |
+| `exploit-kit` | Exploit kit delivery and landing pages |
+| `web-application-attack` | SQL injection, XSS, RFI, etc. |
+| `attempted-admin` | Unauthorized admin access attempts |
+| `shellcode-detect` | Shellcode in network traffic |
+| `successful-admin` | Successful unauthorized admin access |
+| `successful-recon-limited` | Successful reconnaissance activity |
+
+All other categories remain as `alert` (log only) to avoid false-positive blocking of legitimate traffic.
+
+### Automatic Rule Updates
+
+Suricata rules are updated automatically at the configured hour (`RULE_UPDATE_HOUR`, default: 3 AM). The update process:
+
+1. Runs `suricata-update` with the `modify.conf` to fetch latest rules and apply drop conversions
+2. Triggers a live rule reload via `suricatasc -c reload-rules` (no restart needed)
+
+### Adding Custom Blocklists
+
+To add additional `suricata-update` sources:
+
+```bash
+# List available sources
+docker exec security-suricata suricata-update list-sources
+
+# Enable a source
+docker exec security-suricata suricata-update enable-source <source-name>
+
+# Update rules
+docker exec security-suricata suricata-update --modify-conf /var/lib/suricata/rules/modify.conf
+docker exec security-suricata suricatasc -c reload-rules
+```
+
+## Daily Traffic Summary
+
+The alerter sends a daily traffic summary to Telegram at the configured hour (`DAILY_REPORT_HOUR`, default: midnight). The report includes:
+
+- **DNS Queries:** Top queried domains with counts
+- **HTTP/TLS Destinations:** Top destination IPs with hostnames (from SNI/Host header)
+- **Alerts:** Summary of triggered alert rules with counts
+- **Blocked:** Count of packets actively dropped by IPS rules
+
+This requires DNS, HTTP, and TLS logging enabled in Suricata (configured by `setup.sh`).
 
 ## Port Reference
 
@@ -122,7 +224,7 @@ cd security
 The setup script will:
 1. Check prerequisites (Docker, Compose v2)
 2. Prompt for Telegram, LLM, Brave, GitHub, Google, and Viber credentials
-3. Extract and configure Suricata with ET Open rules
+3. Extract and configure Suricata with ET Open + SSLBL rules and drop rules
 4. Build both proxy images
 5. Pull all Docker images
 6. Start all services
@@ -231,6 +333,18 @@ curl -X POST http://security-api-proxy:8086/get_account_info \
 # Should proxy to Viber API with auth token injected
 ```
 
+### Verify no shell in proxy containers
+```bash
+docker exec security-api-proxy sh
+# Should fail — no shell in Chainguard image
+```
+
+### Verify read-only filesystem
+```bash
+docker exec security-api-proxy touch /test
+# Should fail — read-only filesystem
+```
+
 ### Check Suricata IPS
 ```bash
 docker compose -f docker-compose.security.yml logs security-suricata
@@ -239,6 +353,14 @@ docker compose -f docker-compose.security.yml logs security-suricata
 # Verify NFQUEUE rule is active
 docker exec security-suricata iptables -L FORWARD -n
 # Should show NFQUEUE target
+
+# Verify threat feeds
+docker exec security-suricata suricata-update list-enabled-sources
+# Should show ET Open + SSLBL sources
+
+# Verify drop rules
+grep -c "^drop " suricata/rules/suricata.rules
+# Should show many drop rules for critical categories
 ```
 
 ### Check Tracee Enforcement
@@ -258,6 +380,12 @@ docker exec -it openclaw-gateway /bin/sh
 
 # Suricata: scan the Docker host (from another machine)
 nmap <docker-host-ip>
+```
+
+### Test daily report manually
+```bash
+docker exec security-alerter sh /daily-report.sh
+# Should send a traffic summary to Telegram (or print to stdout)
 ```
 
 ## Adding a Guard Service
@@ -297,15 +425,22 @@ All credentials live in `.env.security`. See `.env.security.example` for the ful
 | `GOOGLE_CLIENT_SECRET` | api-proxy | Google OAuth2 client secret |
 | `GOOGLE_REFRESH_TOKEN` | api-proxy | Google OAuth2 refresh token |
 | `VIBER_BOT_TOKEN` | api-proxy | Viber bot authentication token |
+| `DAILY_REPORT_HOUR` | alerter | Hour (0-23) for daily traffic summary (default: 0) |
+| `RULE_UPDATE_HOUR` | suricata | Hour (0-23) for automatic rule updates (default: 3) |
 | `SECURITY_LLM_PROXY_PORT` | docker-compose | Host port for LLM proxy (default 18790) |
 | `SECURITY_API_PROXY_PORT` | docker-compose | Host port for API proxy (default 18780) |
 
 ### Suricata Rules
+
+Rules are updated automatically at `RULE_UPDATE_HOUR`. To update manually:
+
 ```bash
-docker run --rm -v "$(pwd)/suricata/rules:/var/lib/suricata/rules" \
-  jasonish/suricata:latest suricata-update
-docker compose -f docker-compose.security.yml restart security-suricata
+docker exec security-suricata suricata-update \
+  --modify-conf /var/lib/suricata/rules/modify.conf
+docker exec security-suricata suricatasc -c reload-rules
 ```
+
+The `modify.conf` file converts critical threat categories from `alert` to `drop`. See "Threat Intelligence & Blocking" above for the full list.
 
 ### Tracee Policies
 Edit `tracee/policies/openclaw.yaml` then restart:

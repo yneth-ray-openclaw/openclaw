@@ -7,6 +7,10 @@ services:
       - NET_ADMIN
       - NET_RAW
       - SYS_NICE
+    security_opt:
+      - no-new-privileges:true
+    environment:
+      - RULE_UPDATE_HOUR=${RULE_UPDATE_HOUR:-3}
     volumes:
       - ./suricata/etc:/etc/suricata:ro
       - ./suricata/rules:/var/lib/suricata/rules:ro
@@ -19,7 +23,7 @@ services:
         max-file: "3"
 
   security-tracee:
-    image: aquasec/tracee:latest
+    image: aquasec/tracee:0.22.0
     container_name: security-tracee
     privileged: true
     pid: host
@@ -41,9 +45,18 @@ services:
         max-file: "3"
 
   security-llm-proxy:
-    build: ./llm-proxy
+    build:
+      context: .
+      dockerfile: llm-proxy/Dockerfile
     container_name: security-llm-proxy
     env_file: .env.security
+    read_only: true
+    tmpfs:
+      - /tmp
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
     networks:
       - security-net
       - openclaw_net
@@ -51,7 +64,7 @@ services:
       - "${SECURITY_LLM_PROXY_PORT:-18790}:8080"
     restart: unless-stopped
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8080/health"]
+      test: ["CMD", "/usr/local/bin/healthcheck"]
       interval: 30s
       timeout: 5s
       start_period: 10s
@@ -63,9 +76,20 @@ services:
         max-file: "3"
 
   security-api-proxy:
-    build: ./api-proxy
+    build:
+      context: .
+      dockerfile: api-proxy/Dockerfile
     container_name: security-api-proxy
     env_file: .env.security
+    read_only: true
+    tmpfs:
+      - /var/cache/nginx
+      - /var/run
+      - /tmp
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
     networks:
       - security-net
       - openclaw_net
@@ -73,7 +97,7 @@ services:
       - "${SECURITY_API_PROXY_PORT:-18780}:8080"
     restart: unless-stopped
     healthcheck:
-      test: ["CMD", "wget", "-q", "--spider", "http://localhost:8080/health"]
+      test: ["CMD", "/usr/local/bin/healthcheck"]
       interval: 30s
       timeout: 10s
       start_period: 5s
@@ -85,14 +109,17 @@ services:
         max-file: "3"
 
   security-alerter:
-    image: alpine:3.19
+    build: ./alerter
     container_name: security-alerter
     env_file: .env.security
+    read_only: true
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
     volumes:
-      - ./alerter/alert.sh:/alert.sh:ro
       - ./suricata/logs:/var/log/suricata:ro
       - /tmp/tracee:/tmp/tracee:ro
-    entrypoint: ["sh", "/alert.sh"]
     depends_on:
       - security-suricata
       - security-tracee

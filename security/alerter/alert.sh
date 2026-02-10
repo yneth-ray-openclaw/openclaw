@@ -8,6 +8,7 @@ set -u
 TELEGRAM_BOT_TOKEN="${TELEGRAM_BOT_TOKEN:-}"
 TELEGRAM_CHAT_ID="${TELEGRAM_CHAT_ID:-}"
 ALERT_MAX_PER_MINUTE="${ALERT_MAX_PER_MINUTE:-10}"
+DAILY_REPORT_HOUR="${DAILY_REPORT_HOUR:-0}"
 
 SURICATA_LOG="/var/log/suricata/eve.json"
 TRACEE_LOG="/tmp/tracee/out"
@@ -138,6 +139,20 @@ fi
         fi
     done
 ) &
+
+# Daily report background loop
+(
+    while true; do
+        current_hour=$(date +%H)
+        if [ "$current_hour" -eq "$DAILY_REPORT_HOUR" ]; then
+            echo "[alerter] Running daily security report..."
+            sh /daily-report.sh
+            sleep 3700  # Slightly over 1 hour to avoid double-trigger
+        fi
+        sleep 3600  # Check hourly
+    done
+) &
+echo "[alerter] Daily report scheduled at hour $DAILY_REPORT_HOUR"
 
 # Wait for all background processes
 wait
