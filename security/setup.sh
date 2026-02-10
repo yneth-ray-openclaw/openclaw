@@ -82,6 +82,27 @@ else
     read -p "  GitHub Token [skip]: " GITHUB_TOKEN
     GITHUB_TOKEN="${GITHUB_TOKEN:-}"
 
+    # Google API (optional)
+    echo ""
+    echo "  Optional: Google API OAuth2 credentials (for Calendar/Gmail/Drive proxy)"
+    read -p "  Google Client ID [skip]: " GOOGLE_CLIENT_ID
+    GOOGLE_CLIENT_ID="${GOOGLE_CLIENT_ID:-}"
+    if [ -n "$GOOGLE_CLIENT_ID" ]; then
+        read -p "  Google Client Secret: " GOOGLE_CLIENT_SECRET
+        GOOGLE_CLIENT_SECRET="${GOOGLE_CLIENT_SECRET:-}"
+        read -p "  Google Refresh Token: " GOOGLE_REFRESH_TOKEN
+        GOOGLE_REFRESH_TOKEN="${GOOGLE_REFRESH_TOKEN:-}"
+    else
+        GOOGLE_CLIENT_SECRET=""
+        GOOGLE_REFRESH_TOKEN=""
+    fi
+
+    # Viber (optional)
+    echo ""
+    echo "  Optional: Viber bot token (for Viber messaging proxy)"
+    read -p "  Viber Bot Token [skip]: " VIBER_BOT_TOKEN
+    VIBER_BOT_TOKEN="${VIBER_BOT_TOKEN:-}"
+
     # Host Ports
     read -p "  LLM Proxy Host Port [18790]: " SECURITY_LLM_PROXY_PORT
     SECURITY_LLM_PROXY_PORT="${SECURITY_LLM_PROXY_PORT:-18790}"
@@ -106,6 +127,14 @@ BRAVE_API_KEY=${BRAVE_API_KEY}
 
 # GitHub (optional)
 GITHUB_TOKEN=${GITHUB_TOKEN}
+
+# Google API (optional) — OAuth2 for Calendar/Gmail/Drive
+GOOGLE_CLIENT_ID=${GOOGLE_CLIENT_ID}
+GOOGLE_CLIENT_SECRET=${GOOGLE_CLIENT_SECRET}
+GOOGLE_REFRESH_TOKEN=${GOOGLE_REFRESH_TOKEN}
+
+# Viber (optional)
+VIBER_BOT_TOKEN=${VIBER_BOT_TOKEN}
 
 # Host Ports
 SECURITY_LLM_PROXY_PORT=${SECURITY_LLM_PROXY_PORT}
@@ -204,7 +233,7 @@ echo "Services:"
 echo "  * Suricata (Network IDS) — monitoring docker0"
 echo "  * Tracee (Runtime Security) — monitoring containers"
 echo "  * LLM Proxy (FastAPI) — forwarding to ${LLM_API_BASE_DISPLAY}"
-echo "  * API Proxy (nginx) — Telegram, Brave, GitHub"
+echo "  * API Proxy (nginx) — Telegram, Brave, GitHub, Google, Viber"
 echo "  * Alerter — sending alerts to Telegram"
 echo ""
 echo "Proxy Endpoints (from inside OpenClaw containers):"
@@ -213,6 +242,8 @@ echo "  Telegram:               http://security-api-proxy:8081"
 echo "  Brave Search:           http://security-api-proxy:8082"
 echo "  GitHub API:             http://security-api-proxy:8083"
 echo "  GitHub Git:             http://security-api-proxy:8084"
+echo "  Google API:             http://security-api-proxy:8085"
+echo "  Viber API:              http://security-api-proxy:8086"
 echo ""
 echo "Host-side health checks:"
 echo "  curl http://localhost:${LLM_PROXY_PORT}/health"

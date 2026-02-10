@@ -28,9 +28,11 @@ A Docker-based security enforcement and API proxy overlay for OpenClaw. Provides
      | guard hooks     |  | :8082 Brave      |
      | streaming       |  | :8083 GitHub API |
      +--------+--------+  | :8084 GitHub Git |
-              |            +----+---+---+----+
-      Anthropic / OpenAI        |   |   |
-                          Telegram Brave GitHub
+              |            | :8085 Google API |
+      Anthropic / OpenAI   | :8086 Viber API  |
+                           +--+-+-+--+--+--+-+
+                              | | |  |  |  |
+                        Telegram Brave GitHub Google Viber
 
   +---------------------+    +---------------------+
   | security-suricata   |    | security-tracee     |
@@ -56,7 +58,7 @@ A Docker-based security enforcement and API proxy overlay for OpenClaw. Provides
 | Service | Container | Purpose |
 |---------|-----------|---------|
 | **LLM Proxy** | `security-llm-proxy` | FastAPI reverse proxy for Anthropic/OpenAI. Hides API key, supports streaming, guard-ready hook point |
-| **API Proxy** | `security-api-proxy` | nginx reverse proxy for Telegram, Brave Search, GitHub API, GitHub Git. Injects auth per-service |
+| **API Proxy** | `security-api-proxy` | nginx reverse proxy for Telegram, Brave Search, GitHub API, GitHub Git, Google API, Viber. Injects auth per-service |
 | **Suricata** | `security-suricata` | Network IPS — inline NFQUEUE inspection on FORWARD chain, drops malicious packets |
 | **Tracee** | `security-tracee` | Runtime enforcement — eBPF-based container monitoring with SIGKILL on critical violations |
 | **Alerter** | `security-alerter` | Aggregates Suricata and Tracee alerts, sends to Telegram |
@@ -100,6 +102,8 @@ All events (both enforced and monitored) still generate log output for the alert
 | Brave Search | 8082 | (internal) | `http://security-api-proxy:8082` |
 | GitHub API | 8083 | (internal) | `http://security-api-proxy:8083` |
 | GitHub Git | 8084 | (internal) | `http://security-api-proxy:8084` |
+| Google API | 8085 | (internal) | `http://security-api-proxy:8085` |
+| Viber API | 8086 | (internal) | `http://security-api-proxy:8086` |
 
 ## Prerequisites
 
@@ -117,7 +121,7 @@ cd security
 
 The setup script will:
 1. Check prerequisites (Docker, Compose v2)
-2. Prompt for Telegram, LLM, Brave, and GitHub credentials
+2. Prompt for Telegram, LLM, Brave, GitHub, Google, and Viber credentials
 3. Extract and configure Suricata with ET Open rules
 4. Build both proxy images
 5. Pull all Docker images
@@ -143,6 +147,12 @@ GITHUB_API_BASE=http://security-api-proxy:8083
 
 # GitHub Git — through the nginx proxy (use as git remote URL prefix)
 # git clone http://security-api-proxy:8084/owner/repo.git
+
+# Google API (Calendar/Gmail/Drive) — through the nginx proxy
+GOOGLE_API_BASE=http://security-api-proxy:8085
+
+# Viber API — through the nginx proxy
+VIBER_API_BASE=http://security-api-proxy:8086
 ```
 
 The proxies inject real API keys — OpenClaw doesn't need them in its own config.
@@ -208,6 +218,19 @@ curl http://security-api-proxy:8083/user
 # Should proxy to GitHub API with Bearer token injected
 ```
 
+### Test Google API proxy (from inside a container on openclaw_net)
+```bash
+curl http://security-api-proxy:8085/calendar/v3/calendars/primary/events?maxResults=1
+# Should proxy to Google API with OAuth2 Bearer token injected
+```
+
+### Test Viber proxy (from inside a container on openclaw_net)
+```bash
+curl -X POST http://security-api-proxy:8086/get_account_info \
+  -H "Content-Type: application/json" -d '{}'
+# Should proxy to Viber API with auth token injected
+```
+
 ### Check Suricata IPS
 ```bash
 docker compose -f docker-compose.security.yml logs security-suricata
@@ -270,6 +293,10 @@ All credentials live in `.env.security`. See `.env.security.example` for the ful
 | `LLM_API_PROVIDER` | llm-proxy | `anthropic` or `openai` |
 | `BRAVE_API_KEY` | api-proxy | Brave Search subscription token |
 | `GITHUB_TOKEN` | api-proxy | GitHub PAT for API + git |
+| `GOOGLE_CLIENT_ID` | api-proxy | Google OAuth2 client ID |
+| `GOOGLE_CLIENT_SECRET` | api-proxy | Google OAuth2 client secret |
+| `GOOGLE_REFRESH_TOKEN` | api-proxy | Google OAuth2 refresh token |
+| `VIBER_BOT_TOKEN` | api-proxy | Viber bot authentication token |
 | `SECURITY_LLM_PROXY_PORT` | docker-compose | Host port for LLM proxy (default 18790) |
 | `SECURITY_API_PROXY_PORT` | docker-compose | Host port for API proxy (default 18780) |
 
