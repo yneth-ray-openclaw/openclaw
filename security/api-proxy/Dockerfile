@@ -4,11 +4,17 @@ COPY healthcheck/main.go /src/main.go
 WORKDIR /src
 RUN CGO_ENABLED=0 go build -ldflags='-s -w' -o /healthcheck main.go
 
-# Stage 2: Chainguard nginx with njs — no shell, no package manager
+# Stage 2: Render nginx config from template + YAML data
+FROM hairyhenderson/gomplate:stable AS template
+COPY api-proxy/proxy-services.yaml /work/proxy-services.yaml
+COPY api-proxy/nginx.conf.tmpl /work/nginx.conf.tmpl
+RUN gomplate -d services=/work/proxy-services.yaml -f /work/nginx.conf.tmpl -o /work/nginx.conf
+
+# Stage 3: Chainguard nginx with njs — no shell, no package manager
 FROM cgr.dev/chainguard/nginx:latest
 
 COPY --from=healthcheck-builder /healthcheck /usr/local/bin/healthcheck
-COPY api-proxy/nginx.conf /etc/nginx/nginx.conf
+COPY --from=template /work/nginx.conf /etc/nginx/nginx.conf
 COPY api-proxy/token_refresh.js /etc/nginx/njs/token_refresh.js
 
 HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
