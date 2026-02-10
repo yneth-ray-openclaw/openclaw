@@ -1,0 +1,17 @@
+{
+  "defaultAction": "SCMP_ACT_ALLOW",
+  "syscalls": [
+    {
+      "names": [
+        "process_vm_writev",
+        "process_vm_readv",
+        "ptrace",
+        "init_module",
+        "finit_module",
+        "kexec_load"
+      ],
+      "action": "SCMP_ACT_ERRNO",
+      "errnoRet": 1
+    }
+  ]
+}
