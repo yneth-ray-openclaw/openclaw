@@ -18,6 +18,24 @@ http {
     sendfile on;
     keepalive_timeout 65;
 
+    # Security: hide nginx version from error pages and Server header
+    server_tokens off;
+
+    # Security: strip upstream infrastructure headers from all responses
+    proxy_hide_header X-Powered-By;
+    proxy_hide_header Via;
+    proxy_hide_header X-AspNet-Version;
+    proxy_hide_header X-Runtime;
+    proxy_hide_header X-Request-Id;
+
+    # Security: intercept upstream 5xx to prevent stack trace / token leakage
+    # (4xx pass through — clients need to see 400/404/429 details)
+    proxy_intercept_errors on;
+
+    # Security: rate limiting zones (per source IP)
+    limit_req_zone $binary_remote_addr zone=api_general:10m rate=30r/s;
+    limit_req_zone $binary_remote_addr zone=api_search:10m rate=5r/s;
+
     # Increase buffer sizes for API responses
     proxy_buffer_size 128k;
     proxy_buffers 4 256k;
@@ -51,14 +69,22 @@ http {
         listen 8081;
         server_name _;
 
+        error_page 500 502 503 504 =503 @error_5xx;
+        location @error_5xx {
+            return 503 '{"error":"upstream_error","message":"service temporarily unavailable"}';
+        }
+
         # Bot API endpoint: /bot<token>/method
         location ~ ^/bot(.*)$ {
+            limit_req zone=api_general burst=10 nodelay;
+
             rewrite ^/bot.*?/(.*)$ /bot${TELEGRAM_BOT_TOKEN}/$1 break;
 
             proxy_pass https://api.telegram.org;
             proxy_ssl_server_name on;
             proxy_set_header Host api.telegram.org;
             proxy_set_header Content-Type $http_content_type;
+            proxy_redirect off;
 
             # Strip upstream session cookies from reaching the client
             proxy_hide_header Set-Cookie;
@@ -70,11 +96,14 @@ http {
 
         # File download endpoint
         location /file/ {
+            limit_req zone=api_general burst=10 nodelay;
+
             rewrite ^/file/bot.*?/(.*)$ /file/bot${TELEGRAM_BOT_TOKEN}/$1 break;
 
             proxy_pass https://api.telegram.org;
             proxy_ssl_server_name on;
             proxy_set_header Host api.telegram.org;
+            proxy_redirect off;
 
             # Strip upstream session cookies from reaching the client
             proxy_hide_header Set-Cookie;
@@ -91,12 +120,20 @@ http {
         listen 8082;
         server_name _;
 
+        error_page 500 502 503 504 =503 @error_5xx;
+        location @error_5xx {
+            return 503 '{"error":"upstream_error","message":"service temporarily unavailable"}';
+        }
+
         location / {
+            limit_req zone=api_search burst=5 nodelay;
+
             proxy_pass https://api.search.brave.com;
             proxy_ssl_server_name on;
             proxy_set_header Host api.search.brave.com;
             proxy_set_header X-Subscription-Token ${BRAVE_API_KEY};
             proxy_set_header Accept application/json;
+            proxy_redirect off;
 
             # Don't pass through any auth headers from client
             proxy_set_header Authorization "";
@@ -119,7 +156,14 @@ http {
         listen 8083;
         server_name _;
 
+        error_page 500 502 503 504 =503 @error_5xx;
+        location @error_5xx {
+            return 503 '{"error":"upstream_error","message":"service temporarily unavailable"}';
+        }
+
         location / {
+            limit_req zone=api_general burst=10 nodelay;
+
             proxy_pass https://api.github.com;
             proxy_ssl_server_name on;
             proxy_set_header Host api.github.com;
@@ -128,6 +172,7 @@ http {
             proxy_set_header Accept application/vnd.github+json;
             proxy_set_header X-GitHub-Api-Version 2022-11-28;
             proxy_set_header Cookie "";
+            proxy_redirect off;
 
             # Strip upstream session cookies from reaching the client
             proxy_hide_header Set-Cookie;
@@ -146,13 +191,21 @@ http {
         listen 8084;
         server_name _;
 
+        error_page 500 502 503 504 =503 @error_5xx;
+        location @error_5xx {
+            return 503 '{"error":"upstream_error","message":"service temporarily unavailable"}';
+        }
+
         location / {
+            limit_req zone=api_general burst=10 nodelay;
+
             proxy_pass https://github.com;
             proxy_ssl_server_name on;
             proxy_set_header Host github.com;
             proxy_set_header Authorization "Basic ${GITHUB_TOKEN_BASE64}";
             proxy_set_header User-Agent "git/2.40.0";
             proxy_set_header Cookie "";
+            proxy_redirect off;
 
             # Strip upstream session cookies from reaching the client
             proxy_hide_header Set-Cookie;
@@ -177,11 +230,19 @@ http {
         listen 8085;
         server_name _;
 
+        error_page 500 502 503 504 =503 @error_5xx;
+        location @error_5xx {
+            return 503 '{"error":"upstream_error","message":"service temporarily unavailable"}';
+        }
+
         location / {
+            limit_req zone=api_general burst=10 nodelay;
+
             proxy_pass https://www.googleapis.com;
             proxy_ssl_server_name on;
             proxy_set_header Host www.googleapis.com;
             proxy_set_header Authorization "Bearer ${GOOGLE_ACCESS_TOKEN}";
+            proxy_redirect off;
 
             # Don't pass through any auth/session state from or to the client
             proxy_set_header Cookie "";
@@ -201,12 +262,20 @@ http {
         listen 8086;
         server_name _;
 
+        error_page 500 502 503 504 =503 @error_5xx;
+        location @error_5xx {
+            return 503 '{"error":"upstream_error","message":"service temporarily unavailable"}';
+        }
+
         location / {
+            limit_req zone=api_general burst=10 nodelay;
+
             proxy_pass https://chatapi.viber.com/pa/;
             proxy_ssl_server_name on;
             proxy_set_header Host chatapi.viber.com;
             proxy_set_header X-Viber-Auth-Token ${VIBER_BOT_TOKEN};
             proxy_set_header Content-Type application/json;
+            proxy_redirect off;
 
             # Don't pass through any auth/session state from or to the client
             proxy_set_header Authorization "";
