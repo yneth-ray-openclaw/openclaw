@@ -76,6 +76,19 @@ parse_suricata() {
     done
 }
 
+# --- Known package manager binaries ---
+PACKAGE_MANAGERS="/apt-get /dpkg /pip /pip3 /npm /apk"
+
+is_package_manager() {
+    pathname="$1"
+    for pm in $PACKAGE_MANAGERS; do
+        case "$pathname" in
+            *"$pm") return 0 ;;
+        esac
+    done
+    return 1
+}
+
 # --- Tracee alert parser ---
 parse_tracee() {
     while IFS= read -r line; do
@@ -88,6 +101,20 @@ parse_tracee() {
 
         # Skip if we couldn't parse the event name
         [ -z "$event_name" ] && continue
+
+        # Detect package manager execution
+        if [ "$event_name" = "sched_process_exec" ]; then
+            pathname=$(echo "$line" | sed -n 's/.*"pathname":"\([^"]*\)".*/\1/p')
+            if is_package_manager "$pathname"; then
+                cmdline=$(echo "$line" | sed -n 's/.*"cmdline":"\([^"]*\)".*/\1/p')
+                msg="<b>Package Install Detected</b>
+<b>Container:</b> ${container_name}
+<b>Command:</b> ${pathname} ${cmdline}
+<b>Time:</b> ${timestamp}"
+                send_telegram "$msg"
+                continue
+            fi
+        fi
 
         msg="<b>Tracee Alert</b>
 <b>Event:</b> ${event_name}
