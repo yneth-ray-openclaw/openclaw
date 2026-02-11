@@ -1,6 +1,8 @@
 import { detectMime } from "../media/mime.js";
 import { type SavedMedia, saveMediaBuffer } from "../media/store.js";
 
+const DEFAULT_TELEGRAM_API_BASE = "https://api.telegram.org";
+
 export type TelegramFileInfo = {
   file_id: string;
   file_unique_id?: string;
@@ -12,11 +14,12 @@ export async function getTelegramFile(
   token: string,
   fileId: string,
   timeoutMs = 30_000,
+  apiBaseUrl?: string,
 ): Promise<TelegramFileInfo> {
-  const res = await fetch(
-    `https://api.telegram.org/bot${token}/getFile?file_id=${encodeURIComponent(fileId)}`,
-    { signal: AbortSignal.timeout(timeoutMs) },
-  );
+  const base = apiBaseUrl?.replace(/\/+$/, "") || DEFAULT_TELEGRAM_API_BASE;
+  const res = await fetch(`${base}/bot${token}/getFile?file_id=${encodeURIComponent(fileId)}`, {
+    signal: AbortSignal.timeout(timeoutMs),
+  });
   if (!res.ok) {
     throw new Error(`getFile failed: ${res.status} ${res.statusText}`);
   }
@@ -32,11 +35,13 @@ export async function downloadTelegramFile(
   info: TelegramFileInfo,
   maxBytes?: number,
   timeoutMs = 60_000,
+  apiBaseUrl?: string,
 ): Promise<SavedMedia> {
   if (!info.file_path) {
     throw new Error("file_path missing");
   }
-  const url = `https://api.telegram.org/file/bot${token}/${info.file_path}`;
+  const base = apiBaseUrl?.replace(/\/+$/, "") || DEFAULT_TELEGRAM_API_BASE;
+  const url = `${base}/file/bot${token}/${info.file_path}`;
   const res = await fetch(url, { signal: AbortSignal.timeout(timeoutMs) });
   if (!res.ok || !res.body) {
     throw new Error(`Failed to download telegram file: HTTP ${res.status}`);

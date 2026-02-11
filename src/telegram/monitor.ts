@@ -118,6 +118,7 @@ export async function monitorTelegramProvider(opts: MonitorTelegramOpts = {}) {
 
     const proxyFetch =
       opts.proxyFetch ?? (account.config.proxy ? makeProxyFetch(account.config.proxy) : undefined);
+    const apiBaseUrl = account.config.network?.apiBaseUrl?.trim() || undefined;
 
     let lastUpdateId = await readTelegramUpdateOffset({
       accountId: account.accountId,
@@ -143,6 +144,7 @@ export async function monitorTelegramProvider(opts: MonitorTelegramOpts = {}) {
       token,
       runtime: opts.runtime,
       proxyFetch,
+      apiBaseUrl,
       config: cfg,
       accountId: account.accountId,
       updateOffset: {
