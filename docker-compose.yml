@@ -26,8 +26,7 @@ services:
       - openclaw_net
     init: true
     restart: unless-stopped
-    command:
-      ["./dist/openclaw", "gateway", "--bind", "${OPENCLAW_GATEWAY_BIND:-lan}", "--port", "18789"]
+    command: ["./openclaw", "gateway", "--bind", "${OPENCLAW_GATEWAY_BIND:-lan}", "--port", "18789"]
 
   openclaw-cli:
     image: ${OPENCLAW_IMAGE:-openclaw:local}
@@ -47,7 +46,7 @@ services:
     stdin_open: true
     tty: true
     init: true
-    entrypoint: ["./dist/openclaw"]
+    entrypoint: ["./openclaw"]
 
 networks:
   openclaw_net:

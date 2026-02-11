@@ -28,7 +28,7 @@ RUN CI=true pnpm prune --prod
 
 # ── Stage 1b: Binary builder ──
 FROM builder AS binary-builder
-RUN bun build ./src/entry.ts --compile --minify --outfile /app/dist/openclaw \
+RUN bun build ./src/entry.ts --compile --minify --outfile /app/openclaw \
     --external '@node-llama-cpp/*' \
     --external chromium-bidi \
     --external electron
@@ -53,13 +53,16 @@ RUN groupadd --gid 1000 node && useradd --uid 1000 --gid node --create-home node
 
 WORKDIR /app
 
-# Copy compiled binary and runtime assets from binary-builder
+# Copy compiled binary and runtime assets from binary-builder.
+# Binary lives at /app/openclaw so extensions/, skills/, assets/, docs/
+# are siblings — matching resolveBundledPluginsDir / resolveBundledSkillsDir
+# (sibling-of-execPath lookup).
+COPY --from=binary-builder /app/openclaw ./openclaw
 COPY --from=binary-builder /app/dist/ ./dist/
 COPY --from=binary-builder /app/package.json ./package.json
-COPY --from=binary-builder /app/package.json ./dist/package.json
-COPY --from=binary-builder /app/assets/ ./assets/
 COPY --from=binary-builder /app/extensions/ ./extensions/
 COPY --from=binary-builder /app/skills/ ./skills/
+COPY --from=binary-builder /app/assets/ ./assets/
 COPY --from=binary-builder /app/docs/ ./docs/
 
 ENV NODE_ENV=production
@@ -77,5 +80,5 @@ USER node
 #
 # For container platforms requiring external health checks:
 #   1. Set OPENCLAW_GATEWAY_TOKEN or OPENCLAW_GATEWAY_PASSWORD env var
-#   2. Override CMD: ["./dist/openclaw","gateway","--allow-unconfigured","--bind","lan"]
-CMD ["./dist/openclaw", "gateway", "--allow-unconfigured"]
+#   2. Override CMD: ["./openclaw","gateway","--allow-unconfigured","--bind","lan"]
+CMD ["./openclaw", "gateway", "--allow-unconfigured"]
