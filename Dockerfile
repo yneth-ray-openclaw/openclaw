@@ -28,7 +28,10 @@ RUN CI=true pnpm prune --prod
 
 # ── Stage 1b: Binary builder ──
 FROM builder AS binary-builder
-RUN bun build ./src/entry.ts --compile --minify --outfile /app/dist/openclaw
+RUN bun build ./src/entry.ts --compile --minify --outfile /app/dist/openclaw \
+    --external '@node-llama-cpp/*' \
+    --external chromium-bidi \
+    --external electron
 
 # ── Stage 2: Runtime ─────────────────────────────────────────────
 FROM debian:bookworm-slim
@@ -53,12 +56,15 @@ WORKDIR /app
 # Copy compiled binary and runtime assets from binary-builder
 COPY --from=binary-builder /app/dist/ ./dist/
 COPY --from=binary-builder /app/package.json ./package.json
+COPY --from=binary-builder /app/package.json ./dist/package.json
 COPY --from=binary-builder /app/assets/ ./assets/
 COPY --from=binary-builder /app/extensions/ ./extensions/
 COPY --from=binary-builder /app/skills/ ./skills/
 COPY --from=binary-builder /app/docs/ ./docs/
 
 ENV NODE_ENV=production
+# Bun binary does not support Node's --disable-warning flag; skip the respawn.
+ENV OPENCLAW_NO_RESPAWN=1
 
 # Allow non-root user to write temp files during runtime.
 RUN chown -R node:node /app
