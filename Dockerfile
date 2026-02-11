@@ -24,14 +24,14 @@ ENV OPENCLAW_PREFER_PNPM=1
 RUN pnpm ui:build
 
 # Strip devDependencies from node_modules
-RUN pnpm prune --prod
+RUN CI=true pnpm prune --prod
 
-# ── Stage 1b: Binary builder (optional, use --target binary-runtime) ──
+# ── Stage 1b: Binary builder ──
 FROM builder AS binary-builder
 RUN bun build ./src/entry.ts --compile --minify --outfile /app/dist/openclaw
 
 # ── Stage 2: Runtime ─────────────────────────────────────────────
-FROM node:22-bookworm-slim
+FROM debian:bookworm-slim
 
 # bookworm-slim (not distroless) because the main app needs shell
 # for sandbox features and optional apt packages.
@@ -45,17 +45,18 @@ RUN --mount=type=tmpfs,target=/var/cache/apt/archives \
       rm -rf /var/lib/apt/lists/*; \
     fi
 
+# Create non-root user (no longer provided by node base image)
+RUN groupadd --gid 1000 node && useradd --uid 1000 --gid node --create-home node
+
 WORKDIR /app
 
-# Copy only production artifacts from builder
-COPY --from=builder /app/dist/ ./dist/
-COPY --from=builder /app/node_modules/ ./node_modules/
-COPY --from=builder /app/openclaw.mjs ./openclaw.mjs
-COPY --from=builder /app/package.json ./package.json
-COPY --from=builder /app/assets/ ./assets/
-COPY --from=builder /app/extensions/ ./extensions/
-COPY --from=builder /app/skills/ ./skills/
-COPY --from=builder /app/docs/ ./docs/
+# Copy compiled binary and runtime assets from binary-builder
+COPY --from=binary-builder /app/dist/ ./dist/
+COPY --from=binary-builder /app/package.json ./package.json
+COPY --from=binary-builder /app/assets/ ./assets/
+COPY --from=binary-builder /app/extensions/ ./extensions/
+COPY --from=binary-builder /app/skills/ ./skills/
+COPY --from=binary-builder /app/docs/ ./docs/
 
 ENV NODE_ENV=production
 
@@ -63,8 +64,6 @@ ENV NODE_ENV=production
 RUN chown -R node:node /app
 
 # Security hardening: Run as non-root user
-# The node:22-bookworm-slim image includes a 'node' user (uid 1000)
-# This reduces the attack surface by preventing container escape via root privileges
 USER node
 
 # Start gateway server with default config.
@@ -72,5 +71,5 @@ USER node
 #
 # For container platforms requiring external health checks:
 #   1. Set OPENCLAW_GATEWAY_TOKEN or OPENCLAW_GATEWAY_PASSWORD env var
-#   2. Override CMD: ["node","openclaw.mjs","gateway","--allow-unconfigured","--bind","lan"]
-CMD ["node", "openclaw.mjs", "gateway", "--allow-unconfigured"]
+#   2. Override CMD: ["./dist/openclaw","gateway","--allow-unconfigured","--bind","lan"]
+CMD ["./dist/openclaw", "gateway", "--allow-unconfigured"]
