@@ -1,5 +1,6 @@
 import { createJiti } from "jiti";
 import fs from "node:fs";
+import { createRequire } from "node:module";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import type { OpenClawConfig } from "../config/config.js";
@@ -44,11 +45,11 @@ const registryCache = new Map<string, PluginRegistry>();
 const defaultLogger = () => createSubsystemLogger("plugins");
 
 const resolvePluginSdkAlias = (): string | null => {
-  try {
-    const modulePath = fileURLToPath(import.meta.url);
-    const isProduction = process.env.NODE_ENV === "production";
-    const isTest = process.env.VITEST || process.env.NODE_ENV === "test";
-    let cursor = path.dirname(modulePath);
+  const isProduction = process.env.NODE_ENV === "production";
+  const isTest = process.env.VITEST || process.env.NODE_ENV === "test";
+
+  const searchFrom = (startDir: string): string | null => {
+    let cursor = startDir;
     for (let i = 0; i < 6; i += 1) {
       const srcCandidate = path.join(cursor, "src", "plugin-sdk", "index.ts");
       const distCandidate = path.join(cursor, "dist", "plugin-sdk", "index.js");
@@ -68,6 +69,22 @@ const resolvePluginSdkAlias = (): string | null => {
       }
       cursor = parent;
     }
+    return null;
+  };
+
+  try {
+    const modulePath = fileURLToPath(import.meta.url);
+    const result = searchFrom(path.dirname(modulePath));
+    if (result) {
+      return result;
+    }
+  } catch {
+    // ignore
+  }
+  // In Bun compiled binaries, import.meta.url resolves to the virtual
+  // filesystem. Also search relative to the real executable path.
+  try {
+    return searchFrom(path.dirname(process.execPath));
   } catch {
     // ignore
   }
@@ -212,23 +229,26 @@ export function loadOpenClawPlugins(options: PluginLoadOptions = {}): PluginRegi
 
   const pluginSdkAlias = resolvePluginSdkAlias();
   // In Bun compiled binaries, jiti cannot load its babel.cjs transform from
-  // the virtual filesystem (/$bunfs/). Use Bun's native transpiler instead.
+  // the virtual filesystem (/$bunfs/). Load it from a known filesystem path
+  // (placed next to the binary during Docker build).
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const BunRuntime = (globalThis as any).Bun as
-    | { Transpiler: new (opts: { loader: string }) => { transformSync(src: string): string } }
-    | undefined;
-  const bunTransform: ((opts: { source: string; ts?: boolean }) => { code: string }) | undefined =
-    BunRuntime
-      ? (opts) => ({
-          code: new BunRuntime.Transpiler({
-            loader: opts.ts !== false ? "tsx" : "js",
-          }).transformSync(opts.source),
-        })
-      : undefined;
+  const isBunBinary = Boolean((globalThis as any).Bun);
+  let externalTransform: ((opts: { source: string; ts?: boolean }) => { code: string }) | undefined;
+  if (isBunBinary) {
+    const babelPath = path.join(path.dirname(process.execPath), "jiti-babel.cjs");
+    if (fs.existsSync(babelPath)) {
+      try {
+        const req = createRequire(babelPath);
+        externalTransform = req(babelPath);
+      } catch {
+        // Fall through — jiti will attempt its default babel.cjs loading
+      }
+    }
+  }
   const jiti = createJiti(import.meta.url, {
     interopDefault: true,
     extensions: [".ts", ".tsx", ".mts", ".cts", ".mtsx", ".ctsx", ".js", ".mjs", ".cjs", ".json"],
-    ...(bunTransform ? { transform: bunTransform } : {}),
+    ...(externalTransform ? { transform: externalTransform } : {}),
     ...(pluginSdkAlias
       ? {
           alias: { "openclaw/plugin-sdk": pluginSdkAlias },
