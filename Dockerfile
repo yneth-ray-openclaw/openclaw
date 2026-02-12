@@ -74,6 +74,9 @@ COPY --from=binary-builder /app/_jiti/ ./node_modules/jiti/
 ENV NODE_ENV=production
 # Bun binary does not support Node's --disable-warning flag; skip the respawn.
 ENV OPENCLAW_NO_RESPAWN=1
+# Bun compiled binaries resolve externals from /$bunfs/, not the real
+# filesystem. NODE_PATH tells the resolver where to find them.
+ENV NODE_PATH=/app/node_modules
 
 # Allow non-root user to write temp files during runtime.
 RUN chown -R node:node /app
