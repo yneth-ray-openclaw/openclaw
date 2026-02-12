@@ -12,6 +12,9 @@ import type {
   PluginLogger,
 } from "./types.js";
 import { createSubsystemLogger } from "../logging/subsystem.js";
+// Import the plugin-sdk from the binary so extensions loaded by jiti can access
+// it through a lightweight bridge file instead of the heavy dist bundle.
+import * as pluginSdkExports from "../plugin-sdk/index.js";
 import { resolveUserPath } from "../utils.js";
 import { clearPluginCommands } from "./commands.js";
 import {
@@ -45,6 +48,14 @@ const registryCache = new Map<string, PluginRegistry>();
 const defaultLogger = () => createSubsystemLogger("plugins");
 
 const resolvePluginSdkAlias = (): string | null => {
+  // In Bun compiled binaries, prefer the bridge file that delegates to the
+  // binary's own plugin-sdk (already loaded and fully initialized). This
+  // avoids loading the heavy dist bundle which needs 30+ npm packages.
+  const bridgePath = path.join(path.dirname(process.execPath), "plugin-sdk-bridge.cjs");
+  if (fs.existsSync(bridgePath)) {
+    return bridgePath;
+  }
+
   const isProduction = process.env.NODE_ENV === "production";
   const isTest = process.env.VITEST || process.env.NODE_ENV === "test";
 
@@ -226,6 +237,10 @@ export function loadOpenClawPlugins(options: PluginLoadOptions = {}): PluginRegi
     diagnostics: discovery.diagnostics,
   });
   pushDiagnostics(registry.diagnostics, manifestRegistry.diagnostics);
+
+  // Expose the binary's plugin-sdk exports so the bridge file can return them.
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  (globalThis as any).__OPENCLAW_PLUGIN_SDK__ = pluginSdkExports;
 
   const pluginSdkAlias = resolvePluginSdkAlias();
   // In Bun compiled binaries, jiti cannot load its babel.cjs transform from

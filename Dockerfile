@@ -32,17 +32,6 @@ RUN bun build ./src/entry.ts --compile --minify --outfile /app/openclaw \
     --external '@node-llama-cpp/*' \
     --external chromium-bidi \
     --external electron
-# Bundle plugin-sdk with all npm dependencies into a single self-contained file.
-# Extensions loaded by jiti at runtime import from openclaw/plugin-sdk, which
-# resolves to dist/plugin-sdk/index.js. Without bundling, every npm package it
-# references would need to exist in node_modules at runtime.
-RUN bun build ./dist/plugin-sdk/index.js \
-    --outfile /tmp/plugin-sdk-bundle.js \
-    --target node \
-    --format esm \
-    --external 'node:*' && \
-    mv /tmp/plugin-sdk-bundle.js ./dist/plugin-sdk/index.js && \
-    rm -f ./dist/plugin-sdk/pi-model-discovery-*.js
 
 # ── Stage 2: Runtime ─────────────────────────────────────────────
 FROM debian:bookworm-slim
@@ -69,7 +58,7 @@ WORKDIR /app
 # are siblings — matching resolveBundledPluginsDir / resolveBundledSkillsDir
 # (sibling-of-execPath lookup).
 COPY --from=binary-builder /app/openclaw ./openclaw
-COPY --from=binary-builder /app/dist/ ./dist/
+COPY --from=binary-builder /app/dist/control-ui/ ./dist/control-ui/
 COPY --from=binary-builder /app/package.json ./package.json
 COPY --from=binary-builder /app/extensions/ ./extensions/
 COPY --from=binary-builder /app/skills/ ./skills/
@@ -79,6 +68,10 @@ COPY --from=binary-builder /app/docs/ ./docs/
 # In Bun compiled binaries jiti cannot load it from the virtual filesystem,
 # so we place it next to the binary where the plugin loader can find it.
 COPY --from=binary-builder /app/node_modules/jiti/dist/babel.cjs ./jiti-babel.cjs
+# Bridge file: extensions import from "openclaw/plugin-sdk" which jiti resolves
+# via alias to this file. It returns the plugin-sdk already loaded inside the
+# binary, avoiding the need for the heavy dist bundle and its 30+ npm deps.
+RUN echo 'module.exports = globalThis.__OPENCLAW_PLUGIN_SDK__;' > ./plugin-sdk-bridge.cjs
 ENV NODE_ENV=production
 # Bun binary does not support Node's --disable-warning flag; skip the respawn.
 ENV OPENCLAW_NO_RESPAWN=1
