@@ -211,9 +211,24 @@ export function loadOpenClawPlugins(options: PluginLoadOptions = {}): PluginRegi
   pushDiagnostics(registry.diagnostics, manifestRegistry.diagnostics);
 
   const pluginSdkAlias = resolvePluginSdkAlias();
+  // In Bun compiled binaries, jiti cannot load its babel.cjs transform from
+  // the virtual filesystem (/$bunfs/). Use Bun's native transpiler instead.
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const BunRuntime = (globalThis as any).Bun as
+    | { Transpiler: new (opts: { loader: string }) => { transformSync(src: string): string } }
+    | undefined;
+  const bunTransform: ((opts: { source: string; ts?: boolean }) => { code: string }) | undefined =
+    BunRuntime
+      ? (opts) => ({
+          code: new BunRuntime.Transpiler({
+            loader: opts.ts !== false ? "tsx" : "js",
+          }).transformSync(opts.source),
+        })
+      : undefined;
   const jiti = createJiti(import.meta.url, {
     interopDefault: true,
     extensions: [".ts", ".tsx", ".mts", ".cts", ".mtsx", ".ctsx", ".js", ".mjs", ".cjs", ".json"],
+    ...(bunTransform ? { transform: bunTransform } : {}),
     ...(pluginSdkAlias
       ? {
           alias: { "openclaw/plugin-sdk": pluginSdkAlias },
