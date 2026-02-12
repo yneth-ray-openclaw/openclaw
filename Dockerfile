@@ -31,10 +31,7 @@ FROM builder AS binary-builder
 RUN bun build ./src/entry.ts --compile --minify --outfile /app/openclaw \
     --external '@node-llama-cpp/*' \
     --external chromium-bidi \
-    --external electron \
-    --external jiti
-# Resolve pnpm symlinks so jiti can be copied to the runtime image.
-RUN cp -rL /app/node_modules/jiti /app/_jiti
+    --external electron
 
 # ── Stage 2: Runtime ─────────────────────────────────────────────
 FROM debian:bookworm-slim
@@ -67,16 +64,9 @@ COPY --from=binary-builder /app/extensions/ ./extensions/
 COPY --from=binary-builder /app/skills/ ./skills/
 COPY --from=binary-builder /app/assets/ ./assets/
 COPY --from=binary-builder /app/docs/ ./docs/
-# jiti needs babel.cjs on disk for runtime TS transpilation of extensions;
-# it cannot resolve it from Bun's virtual filesystem (/$bunfs/).
-COPY --from=binary-builder /app/_jiti/ ./node_modules/jiti/
-
 ENV NODE_ENV=production
 # Bun binary does not support Node's --disable-warning flag; skip the respawn.
 ENV OPENCLAW_NO_RESPAWN=1
-# Bun compiled binaries resolve externals from /$bunfs/, not the real
-# filesystem. NODE_PATH tells the resolver where to find them.
-ENV NODE_PATH=/app/node_modules
 
 # Allow non-root user to write temp files during runtime.
 RUN chown -R node:node /app
