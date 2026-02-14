@@ -23,17 +23,17 @@ sed 's|HOME_NET:.*".*"|HOME_NET: "[172.16.0.0/12]"|' "$CONFIG" > "$CONFIG.tmp" &
 sed 's|default-log-dir:.*|default-log-dir: /var/log/suricata/|' "$CONFIG" > "$CONFIG.tmp" && mv "$CONFIG.tmp" "$CONFIG"
 
 # Enable IPS mode (NFQUEUE) — fail-closed: block traffic if Suricata is down
-sed -i 's/# *nfq:/nfq:/' "$CONFIG"
-sed -i '/nfq:/,/fail-open:/ s/fail-open: .*/fail-open: no/' "$CONFIG"
+sed 's/# *nfq:/nfq:/' "$CONFIG" > "$CONFIG.tmp" && mv "$CONFIG.tmp" "$CONFIG"
+sed '/nfq:/,/fail-open:/ s/fail-open: .*/fail-open: no/' "$CONFIG" > "$CONFIG.tmp" && mv "$CONFIG.tmp" "$CONFIG"
 
 # Enable stream inline so Suricata honors drop rules in IPS mode
-sed -i '/^stream:/,/^[^ ]/ s/inline: .*/inline: auto/' "$CONFIG"
+sed '/^stream:/,/^[^ ]/ s/inline: .*/inline: auto/' "$CONFIG" > "$CONFIG.tmp" && mv "$CONFIG.tmp" "$CONFIG"
 
 # Enable DNS, HTTP, and TLS logging in eve-log output
 # These are needed for the daily traffic summary
-sed -i '/- dns:/,/^[[:space:]]*-/ s/enabled: no/enabled: yes/' "$CONFIG"
-sed -i '/- http:/,/^[[:space:]]*-/ s/enabled: no/enabled: yes/' "$CONFIG"
-sed -i '/- tls:/,/^[[:space:]]*-/ s/enabled: no/enabled: yes/' "$CONFIG"
+sed '/- dns:/,/^[[:space:]]*-/ s/enabled: no/enabled: yes/' "$CONFIG" > "$CONFIG.tmp" && mv "$CONFIG.tmp" "$CONFIG"
+sed '/- http:/,/^[[:space:]]*-/ s/enabled: no/enabled: yes/' "$CONFIG" > "$CONFIG.tmp" && mv "$CONFIG.tmp" "$CONFIG"
+sed '/- tls:/,/^[[:space:]]*-/ s/enabled: no/enabled: yes/' "$CONFIG" > "$CONFIG.tmp" && mv "$CONFIG.tmp" "$CONFIG"
 
 echo "[Suricata] Creating modify.conf for drop rules..."
 cat > "$RULES_DIR/modify.conf" << 'EOF'
