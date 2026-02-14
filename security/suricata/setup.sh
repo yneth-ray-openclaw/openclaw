@@ -35,24 +35,24 @@ sed '/- dns:/,/^[[:space:]]*-/ s/enabled: no/enabled: yes/' "$CONFIG" > "$CONFIG
 sed '/- http:/,/^[[:space:]]*-/ s/enabled: no/enabled: yes/' "$CONFIG" > "$CONFIG.tmp" && mv "$CONFIG.tmp" "$CONFIG"
 sed '/- tls:/,/^[[:space:]]*-/ s/enabled: no/enabled: yes/' "$CONFIG" > "$CONFIG.tmp" && mv "$CONFIG.tmp" "$CONFIG"
 
-echo "[Suricata] Creating modify.conf for drop rules..."
-cat > "$RULES_DIR/modify.conf" << 'EOF'
+echo "[Suricata] Creating drop.conf for drop rules..."
+cat > "$RULES_DIR/drop.conf" << 'EOF'
 # Convert critical threat categories from alert to drop
-re:classtype:trojan-activity alert -> drop
-re:classtype:command-and-control alert -> drop
-re:classtype:exploit-kit alert -> drop
-re:classtype:web-application-attack alert -> drop
-re:classtype:attempted-admin alert -> drop
-re:classtype:shellcode-detect alert -> drop
-re:classtype:successful-admin alert -> drop
-re:classtype:successful-recon-limited alert -> drop
+re:classtype:trojan-activity
+re:classtype:command-and-control
+re:classtype:exploit-kit
+re:classtype:web-application-attack
+re:classtype:attempted-admin
+re:classtype:shellcode-detect
+re:classtype:successful-admin
+re:classtype:successful-recon-limited
 EOF
 
 echo "[Suricata] Updating rules via suricata-update..."
 docker run --rm \
   -v "$RULES_DIR:/var/lib/suricata/rules" \
   jasonish/suricata:7.0 \
-  suricata-update --modify-conf /var/lib/suricata/rules/modify.conf
+  suricata-update --drop-conf /var/lib/suricata/rules/drop.conf
 
 echo "[Suricata] Enabling additional threat feeds..."
 docker run --rm \
