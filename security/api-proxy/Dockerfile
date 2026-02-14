@@ -5,7 +5,7 @@ WORKDIR /src
 RUN CGO_ENABLED=0 go build -ldflags='-s -w' -o /healthcheck main.go
 
 # Stage 2: Render nginx config from template + YAML data
-FROM hairyhenderson/gomplate:stable AS template
+FROM hairyhenderson/gomplate:stable-alpine AS template
 COPY api-proxy/proxy-services.yaml /work/proxy-services.yaml
 COPY api-proxy/nginx.conf.tmpl /work/nginx.conf.tmpl
 RUN gomplate -d services=/work/proxy-services.yaml -f /work/nginx.conf.tmpl -o /work/nginx.conf

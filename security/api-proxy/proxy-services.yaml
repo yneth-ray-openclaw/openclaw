@@ -19,11 +19,12 @@ services:
     host: api.github.com
     rate_zone: api_general
     burst: 10
-    auth_header: "Authorization \"Bearer $github_token\""
+    auth_header: 'Authorization "Bearer $github_token"'
     extra_proxy_headers:
-      User-Agent: "\"OpenClaw-Proxy/1.0\""
+      User-Agent: '"OpenClaw-Proxy/1.0"'
       Accept: "application/vnd.github+json"
       X-GitHub-Api-Version: "2022-11-28"
+    strip_auth: false
     timeouts:
       read: 60s
       connect: 30s
@@ -34,7 +35,9 @@ services:
     host: www.googleapis.com
     rate_zone: api_general
     burst: 10
-    auth_header: "Authorization \"Bearer $google_access_token\""
+    auth_header: 'Authorization "Bearer $google_access_token"'
+    extra_proxy_headers: {}
+    strip_auth: false
     timeouts:
       read: 60s
       connect: 30s
