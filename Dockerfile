@@ -32,7 +32,7 @@ RUN if [ -n "$OPENCLAW_DOCKER_APT_PACKAGES" ]; then \
     fi
 
 WORKDIR /app
-COPY --link --chown=node:node --from=builder /app /app
+COPY --link --chown=1000:1000 --from=builder /app /app
 
 ENV NODE_ENV=production
 
