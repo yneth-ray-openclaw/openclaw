@@ -1,18 +1,20 @@
 FROM jasonish/suricata:7.0 AS builder
 
 # Create drop.conf for converting critical threat categories from alert to drop
-RUN echo 're:classtype:trojan-activity\n\
-re:classtype:command-and-control\n\
-re:classtype:exploit-kit\n\
-re:classtype:web-application-attack\n\
-re:classtype:attempted-admin\n\
-re:classtype:shellcode-detect\n\
-re:classtype:successful-admin\n\
-re:classtype:successful-recon-limited' > /tmp/drop.conf
+RUN printf '%s\n' \
+    're:classtype:trojan-activity' \
+    're:classtype:command-and-control' \
+    're:classtype:exploit-kit' \
+    're:classtype:web-application-attack' \
+    're:classtype:attempted-admin' \
+    're:classtype:shellcode-detect' \
+    're:classtype:successful-admin' \
+    're:classtype:successful-recon-limited' \
+    > /tmp/drop.conf
 
 # Enable additional threat feeds
-RUN suricata-update enable-source sslbl/ssl-fp-blacklist && \
-    suricata-update enable-source sslbl/ja3-fingerprints && \
+RUN suricata-update enable-source abuse.ch/sslbl-blacklist && \
+    suricata-update enable-source abuse.ch/sslbl-ja3 && \
     suricata-update enable-source etnetera/aggressive
 
 # Download and apply rules with drop policy
@@ -31,7 +33,7 @@ RUN cp /etc/suricata/suricata.yaml /etc/suricata/suricata.yaml.bak && \
 
 FROM jasonish/suricata:7.0
 
-RUN apk add --no-cache iptables
+RUN dnf install -y --setopt=install_weak_deps=False iptables && dnf clean all
 
 COPY --from=builder /etc/suricata/suricata.yaml /etc/suricata/suricata.yaml
 COPY --from=builder /var/lib/suricata/rules/ /var/lib/suricata/rules/
