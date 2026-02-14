@@ -26,18 +26,8 @@ RUN pnpm ui:build
 # Strip devDependencies from node_modules
 RUN CI=true pnpm prune --prod
 
-# ── Stage 1b: Binary builder ──
-FROM builder AS binary-builder
-RUN bun build ./src/entry.ts --compile --minify --outfile /app/openclaw \
-    --external '@node-llama-cpp/*' \
-    --external chromium-bidi \
-    --external electron
-
 # ── Stage 2: Runtime ─────────────────────────────────────────────
-FROM debian:bookworm-slim
-
-# bookworm-slim (not distroless) because the main app needs shell
-# for sandbox features and optional apt packages.
+FROM node:22-bookworm-slim
 
 ARG OPENCLAW_DOCKER_APT_PACKAGES=""
 RUN --mount=type=tmpfs,target=/var/cache/apt/archives \
@@ -48,33 +38,19 @@ RUN --mount=type=tmpfs,target=/var/cache/apt/archives \
       rm -rf /var/lib/apt/lists/*; \
     fi
 
-# Create non-root user (no longer provided by node base image)
-RUN groupadd --gid 1000 node && useradd --uid 1000 --gid node --create-home node
-
 WORKDIR /app
 
-# Copy compiled binary and runtime assets from binary-builder.
-# Binary lives at /app/openclaw so extensions/, skills/, assets/, docs/
-# are siblings — matching resolveBundledPluginsDir / resolveBundledSkillsDir
-# (sibling-of-execPath lookup).
-COPY --from=binary-builder /app/openclaw ./openclaw
-COPY --from=binary-builder /app/dist/control-ui/ ./dist/control-ui/
-COPY --from=binary-builder /app/package.json ./package.json
-COPY --from=binary-builder /app/extensions/ ./extensions/
-COPY --from=binary-builder /app/skills/ ./skills/
-COPY --from=binary-builder /app/assets/ ./assets/
-COPY --from=binary-builder /app/docs/ ./docs/
-# jiti's babel.cjs is needed at runtime to transpile plugin extensions (TS → CJS).
-# In Bun compiled binaries jiti cannot load it from the virtual filesystem,
-# so we place it next to the binary where the plugin loader can find it.
-COPY --from=binary-builder /app/node_modules/jiti/dist/babel.cjs ./jiti-babel.cjs
-# Bridge file: extensions import from "openclaw/plugin-sdk" which jiti resolves
-# via alias to this file. It returns the plugin-sdk already loaded inside the
-# binary, avoiding the need for the heavy dist bundle and its 30+ npm deps.
-RUN echo 'module.exports = globalThis.__OPENCLAW_PLUGIN_SDK__;' > ./plugin-sdk-bridge.cjs
+# Copy built application and production dependencies from builder.
+COPY --from=builder /app/dist/ ./dist/
+COPY --from=builder /app/node_modules/ ./node_modules/
+COPY --from=builder /app/package.json ./package.json
+COPY --from=builder /app/openclaw.mjs ./openclaw.mjs
+COPY --from=builder /app/extensions/ ./extensions/
+COPY --from=builder /app/skills/ ./skills/
+COPY --from=builder /app/assets/ ./assets/
+COPY --from=builder /app/docs/ ./docs/
+
 ENV NODE_ENV=production
-# Bun binary does not support Node's --disable-warning flag; skip the respawn.
-ENV OPENCLAW_NO_RESPAWN=1
 
 # Allow non-root user to write temp files during runtime.
 RUN chown -R node:node /app
@@ -87,5 +63,5 @@ USER node
 #
 # For container platforms requiring external health checks:
 #   1. Set OPENCLAW_GATEWAY_TOKEN or OPENCLAW_GATEWAY_PASSWORD env var
-#   2. Override CMD: ["./openclaw","gateway","--allow-unconfigured","--bind","lan"]
-CMD ["./openclaw", "gateway", "--allow-unconfigured"]
+#   2. Override CMD: ["node","openclaw.mjs","gateway","--allow-unconfigured","--bind","lan"]
+CMD ["node", "openclaw.mjs", "gateway", "--allow-unconfigured"]

@@ -1,6 +1,5 @@
 import { createJiti } from "jiti";
 import fs from "node:fs";
-import { createRequire } from "node:module";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import type { OpenClawConfig } from "../config/config.js";
@@ -12,9 +11,6 @@ import type {
   PluginLogger,
 } from "./types.js";
 import { createSubsystemLogger } from "../logging/subsystem.js";
-// Import the plugin-sdk from the binary so extensions loaded by jiti can access
-// it through a lightweight bridge file instead of the heavy dist bundle.
-import * as pluginSdkExports from "../plugin-sdk/index.js";
 import { resolveUserPath } from "../utils.js";
 import { clearPluginCommands } from "./commands.js";
 import {
@@ -48,14 +44,6 @@ const registryCache = new Map<string, PluginRegistry>();
 const defaultLogger = () => createSubsystemLogger("plugins");
 
 const resolvePluginSdkAlias = (): string | null => {
-  // In Bun compiled binaries, prefer the bridge file that delegates to the
-  // binary's own plugin-sdk (already loaded and fully initialized). This
-  // avoids loading the heavy dist bundle which needs 30+ npm packages.
-  const bridgePath = path.join(path.dirname(process.execPath), "plugin-sdk-bridge.cjs");
-  if (fs.existsSync(bridgePath)) {
-    return bridgePath;
-  }
-
   const isProduction = process.env.NODE_ENV === "production";
   const isTest = process.env.VITEST || process.env.NODE_ENV === "test";
 
@@ -85,17 +73,7 @@ const resolvePluginSdkAlias = (): string | null => {
 
   try {
     const modulePath = fileURLToPath(import.meta.url);
-    const result = searchFrom(path.dirname(modulePath));
-    if (result) {
-      return result;
-    }
-  } catch {
-    // ignore
-  }
-  // In Bun compiled binaries, import.meta.url resolves to the virtual
-  // filesystem. Also search relative to the real executable path.
-  try {
-    return searchFrom(path.dirname(process.execPath));
+    return searchFrom(path.dirname(modulePath));
   } catch {
     // ignore
   }
@@ -238,32 +216,10 @@ export function loadOpenClawPlugins(options: PluginLoadOptions = {}): PluginRegi
   });
   pushDiagnostics(registry.diagnostics, manifestRegistry.diagnostics);
 
-  // Expose the binary's plugin-sdk exports so the bridge file can return them.
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  (globalThis as any).__OPENCLAW_PLUGIN_SDK__ = pluginSdkExports;
-
   const pluginSdkAlias = resolvePluginSdkAlias();
-  // In Bun compiled binaries, jiti cannot load its babel.cjs transform from
-  // the virtual filesystem (/$bunfs/). Load it from a known filesystem path
-  // (placed next to the binary during Docker build).
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const isBunBinary = Boolean((globalThis as any).Bun);
-  let externalTransform: ((opts: { source: string; ts?: boolean }) => { code: string }) | undefined;
-  if (isBunBinary) {
-    const babelPath = path.join(path.dirname(process.execPath), "jiti-babel.cjs");
-    if (fs.existsSync(babelPath)) {
-      try {
-        const req = createRequire(babelPath);
-        externalTransform = req(babelPath);
-      } catch {
-        // Fall through — jiti will attempt its default babel.cjs loading
-      }
-    }
-  }
   const jiti = createJiti(import.meta.url, {
     interopDefault: true,
     extensions: [".ts", ".tsx", ".mts", ".cts", ".mtsx", ".ctsx", ".js", ".mjs", ".cjs", ".json"],
-    ...(externalTransform ? { transform: externalTransform } : {}),
     ...(pluginSdkAlias
       ? {
           alias: { "openclaw/plugin-sdk": pluginSdkAlias },
