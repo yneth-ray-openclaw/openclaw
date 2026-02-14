@@ -38,14 +38,14 @@ sed '/- tls:/,/^[[:space:]]*-/ s/enabled: no/enabled: yes/' "$CONFIG" > "$CONFIG
 echo "[Suricata] Creating modify.conf for drop rules..."
 cat > "$RULES_DIR/modify.conf" << 'EOF'
 # Convert critical threat categories from alert to drop
-re:classtype:trojan-activity  alert -> drop
-re:classtype:command-and-control  alert -> drop
-re:classtype:exploit-kit  alert -> drop
-re:classtype:web-application-attack  alert -> drop
-re:classtype:attempted-admin  alert -> drop
-re:classtype:shellcode-detect  alert -> drop
-re:classtype:successful-admin  alert -> drop
-re:classtype:successful-recon-limited  alert -> drop
+re:classtype:trojan-activity alert -> drop
+re:classtype:command-and-control alert -> drop
+re:classtype:exploit-kit alert -> drop
+re:classtype:web-application-attack alert -> drop
+re:classtype:attempted-admin alert -> drop
+re:classtype:shellcode-detect alert -> drop
+re:classtype:successful-admin alert -> drop
+re:classtype:successful-recon-limited alert -> drop
 EOF
 
 echo "[Suricata] Updating rules via suricata-update..."
