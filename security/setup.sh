@@ -150,11 +150,6 @@ EOF
 fi
 echo ""
 
-# --- Suricata setup ---
-echo "Setting up Suricata..."
-bash suricata/setup.sh
-echo ""
-
 # --- Build Docker images ---
 echo "Building Docker images..."
 docker compose -f docker-compose.security.yml build
