@@ -59,7 +59,7 @@ services:
       - security-net
       - openclaw_net
     ports:
-      - "${SECURITY_LLM_PROXY_PORT:-18790}:8080"
+      - "${SECURITY_LLM_PROXY_PORT:-18791}:8080"
     restart: unless-stopped
     healthcheck:
       test: ["CMD", "/usr/local/bin/healthcheck"]
@@ -132,4 +132,5 @@ networks:
   security-net:
     driver: bridge
   openclaw_net:
+    name: openclaw_openclaw_net
     external: true
