@@ -26,10 +26,25 @@ services:
       - openclaw_net
     init: true
     restart: unless-stopped
-    command: ["./openclaw", "gateway", "--bind", "${OPENCLAW_GATEWAY_BIND:-lan}", "--port", "18789"]
+    command:
+      [
+        "node",
+        "openclaw.mjs",
+        "gateway",
+        "--bind",
+        "${OPENCLAW_GATEWAY_BIND:-lan}",
+        "--port",
+        "18789",
+      ]
 
   openclaw-cli:
     image: ${OPENCLAW_IMAGE:-openclaw:local}
+    read_only: true
+    tmpfs:
+      - /tmp
+    security_opt:
+      - no-new-privileges:true
+      - seccomp=security/seccomp/openclaw.json
     environment:
       HOME: /home/node
       TERM: xterm-256color
@@ -46,7 +61,7 @@ services:
     stdin_open: true
     tty: true
     init: true
-    entrypoint: ["./openclaw"]
+    entrypoint: ["node", "openclaw.mjs"]
 
 networks:
   openclaw_net:
