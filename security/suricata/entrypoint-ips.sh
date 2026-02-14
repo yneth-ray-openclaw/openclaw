@@ -19,7 +19,7 @@ RULE_UPDATE_HOUR="${RULE_UPDATE_HOUR:-3}"
         current_hour=$(date +%H)
         if [ "$current_hour" -eq "$RULE_UPDATE_HOUR" ]; then
             echo "[suricata-ips] Updating rules..."
-            suricata-update --modify-conf /var/lib/suricata/rules/modify.conf && \
+            suricata-update --drop-conf /var/lib/suricata/drop.conf && \
                 suricatasc -c reload-rules && \
                 echo "[suricata-ips] Rules reloaded"
             sleep 3700  # Slightly over 1 hour to avoid double-trigger

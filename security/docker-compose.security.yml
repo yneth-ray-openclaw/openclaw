@@ -12,8 +12,6 @@ services:
     environment:
       - RULE_UPDATE_HOUR=${RULE_UPDATE_HOUR:-3}
     volumes:
-      - ./suricata/etc:/etc/suricata:ro
-      - ./suricata/rules:/var/lib/suricata/rules:ro
       - ./suricata/logs:/var/log/suricata
     restart: unless-stopped
     logging:
