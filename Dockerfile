@@ -1,5 +1,4 @@
-# ── Stage 1: Builder ─────────────────────────────────────────────
-FROM node:22-bookworm AS builder
+FROM node:22-bookworm
 
 # Install Bun (required for build scripts)
 RUN curl -fsSL https://bun.sh/install | bash
@@ -8,6 +7,14 @@ ENV PATH="/root/.bun/bin:${PATH}"
 RUN corepack enable
 
 WORKDIR /app
+
+ARG OPENCLAW_DOCKER_APT_PACKAGES=""
+RUN if [ -n "$OPENCLAW_DOCKER_APT_PACKAGES" ]; then \
+      apt-get update && \
+      DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends $OPENCLAW_DOCKER_APT_PACKAGES && \
+      apt-get clean && \
+      rm -rf /var/lib/apt/lists/* /var/cache/apt/archives/*; \
+    fi
 
 COPY package.json pnpm-lock.yaml pnpm-workspace.yaml .npmrc ./
 COPY ui/package.json ./ui/package.json
@@ -18,44 +25,18 @@ RUN pnpm install --frozen-lockfile
 
 COPY . .
 RUN pnpm build
-RUN node scripts/generate-integrity.mjs
 # Force pnpm for UI build (Bun may fail on ARM/Synology architectures)
 ENV OPENCLAW_PREFER_PNPM=1
 RUN pnpm ui:build
 
-# Strip devDependencies from node_modules
-RUN CI=true pnpm prune --prod
-
-# ── Stage 2: Runtime ─────────────────────────────────────────────
-FROM node:22-bookworm-slim
-
-ARG OPENCLAW_DOCKER_APT_PACKAGES=""
-RUN --mount=type=tmpfs,target=/var/cache/apt/archives \
-    if [ -n "$OPENCLAW_DOCKER_APT_PACKAGES" ]; then \
-      rm -rf /var/lib/apt/lists/* && \
-      apt-get update && \
-      DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends $OPENCLAW_DOCKER_APT_PACKAGES && \
-      rm -rf /var/lib/apt/lists/*; \
-    fi
-
-WORKDIR /app
-
-# Copy built application and production dependencies from builder.
-COPY --from=builder /app/dist/ ./dist/
-COPY --from=builder /app/node_modules/ ./node_modules/
-COPY --from=builder /app/package.json ./package.json
-COPY --from=builder /app/openclaw.mjs ./openclaw.mjs
-COPY --from=builder /app/extensions/ ./extensions/
-COPY --from=builder /app/skills/ ./skills/
-COPY --from=builder /app/assets/ ./assets/
-COPY --from=builder /app/docs/ ./docs/
-
 ENV NODE_ENV=production
 
-# Allow non-root user to write temp files during runtime.
+# Allow non-root user to write temp files during runtime/tests.
 RUN chown -R node:node /app
 
 # Security hardening: Run as non-root user
+# The node:22-bookworm image includes a 'node' user (uid 1000)
+# This reduces the attack surface by preventing container escape via root privileges
 USER node
 
 # Start gateway server with default config.
