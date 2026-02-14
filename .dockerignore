@@ -1,3 +1,7 @@
+Dockerfile
+Dockerfile.*
+docker-compose*.yml
+.dockerignore
 .git
 .worktrees
 .bun-cache
