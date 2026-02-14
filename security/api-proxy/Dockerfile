@@ -10,8 +10,11 @@ COPY api-proxy/proxy-services.yaml /work/proxy-services.yaml
 COPY api-proxy/nginx.conf.tmpl /work/nginx.conf.tmpl
 RUN gomplate -d services=/work/proxy-services.yaml -f /work/nginx.conf.tmpl -o /work/nginx.conf
 
-# Stage 3: Chainguard nginx with njs — no shell, no package manager
-FROM cgr.dev/chainguard/nginx:latest
+# Stage 3: Official nginx with njs module
+FROM nginx:1.27-alpine
+
+RUN apk add --no-cache nginx-module-njs \
+    && rm -rf /var/cache/apk/*
 
 COPY --from=healthcheck-builder /healthcheck /usr/local/bin/healthcheck
 COPY --from=template /work/nginx.conf /etc/nginx/nginx.conf
