@@ -25,6 +25,8 @@ export type TelegramActionConfig = {
 export type TelegramNetworkConfig = {
   /** Override Node's autoSelectFamily behavior (true = enable, false = disable). */
   autoSelectFamily?: boolean;
+  /** Override the Telegram Bot API base URL (defaults to https://api.telegram.org). */
+  apiBaseUrl?: string;
 };
 
 export type TelegramInlineButtonsScope = "off" | "dm" | "group" | "all" | "allowlist";

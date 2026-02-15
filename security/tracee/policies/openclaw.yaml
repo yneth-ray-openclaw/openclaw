@@ -1,0 +1,84 @@
+apiVersion: tracee.aquasec.com/v1beta1
+kind: Policy
+metadata:
+  name: openclaw-security
+  annotations:
+    description: Runtime security policy for OpenClaw containers — monitoring mode
+spec:
+  scope:
+    - container
+  rules:
+    # === SECURITY EVENTS (log) ===
+    # Tracee v0.22 only supports "log" and "print" actions.
+    # These events are logged and forwarded to the alerter for notification.
+    - event: ptrace
+      actions:
+        - log
+    - event: setuid
+      actions:
+        - log
+    - event: setgid
+      actions:
+        - log
+    - event: init_module
+      actions:
+        - log
+    - event: finit_module
+      actions:
+        - log
+    # === Memory protection ===
+    - event: process_vm_writev
+      actions:
+        - log
+    - event: process_vm_readv
+      actions:
+        - log
+    # === File integrity — app code, skills, and assets ===
+    # Defense-in-depth: containers run with read_only:true, so the overlay FS
+    # already blocks writes. These rules catch anything that bypasses it
+    # (container escape, mount misconfiguration, overlay remount).
+    #
+    # magic_write fires when a write changes a file's type signature (ELF header,
+    # script shebang, etc).
+    - event: magic_write
+      filters:
+        - args.pathname=/app/dist/*
+        - args.pathname=/app/skills/*
+        - args.pathname=/app/assets/*
+        - args.pathname=/app/openclaw.mjs
+        - args.pathname=/app/package.json
+      actions:
+        - log
+    # Detect file deletions from protected app directories.
+    - event: security_inode_unlink
+      filters:
+        - args.pathname=/app/dist/*
+        - args.pathname=/app/skills/*
+        - args.pathname=/app/assets/*
+        - args.pathname=/app/openclaw.mjs
+        - args.pathname=/app/package.json
+        - args.pathname=/app/pnpm-lock.yaml
+      actions:
+        - log
+    # Detect file renames/moves out of protected directories.
+    - event: security_inode_rename
+      filters:
+        - args.old_path=/app/dist/*
+        - args.old_path=/app/skills/*
+        - args.old_path=/app/assets/*
+        - args.old_path=/app/openclaw.mjs
+        - args.old_path=/app/package.json
+      actions:
+        - log
+    # Detect new executables dropped into any container (built-in signature).
+    # Fires when an ELF binary appears that wasn't part of the original image.
+    - event: dropped_executable
+      actions:
+        - log
+    # === MONITORING ===
+    # Logs all process executions, including package manager invocations.
+    # The alerter parses these events and sends Telegram notifications
+    # for package manager binaries (apt-get, dpkg, pip, npm, apk).
+    - event: sched_process_exec
+      actions:
+        - log

@@ -426,6 +426,11 @@ export type ToolsConfig = {
         /** Include inline citations in response text as markdown links (default: false). */
         inlineCitations?: boolean;
       };
+      /** Brave-specific configuration (used when provider="brave"). */
+      brave?: {
+        /** Base URL for Brave Search API requests (defaults to https://api.search.brave.com/res/v1/web/search). */
+        baseUrl?: string;
+      };
     };
     fetch?: {
       /** Enable web fetch tool (default: true). */
