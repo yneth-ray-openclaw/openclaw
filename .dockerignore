@@ -1,3 +1,7 @@
+Dockerfile
+Dockerfile.*
+docker-compose*.yml
+.dockerignore
 .git
 .worktrees
 .bun-cache
@@ -31,7 +35,7 @@ coverage
 tmp
 **/tmp
 
-# build artifacts
+# build artifacts (rebuilt inside the container)
 dist
 **/dist
 apps/macos/.build
@@ -40,7 +44,6 @@ apps/ios/build
 
 # large app trees not needed for CLI build
 apps/
-assets/
 Peekaboo/
 Swabble/
 Core/
@@ -58,3 +61,14 @@ vendor/
 !vendor/a2ui/renderers/
 !vendor/a2ui/renderers/lit/
 !vendor/a2ui/renderers/lit/**
+
+# security stack — tokens, IDS rules, proxy configs must never leak into app container
+security/
+
+# test files
+test/
+vitest*.ts
+vitest*.config.ts
+.env*
+
+setup.sh

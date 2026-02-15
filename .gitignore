@@ -86,3 +86,13 @@ USER.md
 !.agent/workflows/
 /local/
 package-lock.json
+
+# Security monitoring stack
+security/suricata/logs/
+security/suricata/etc/
+security/suricata/rules/
+security/.env.security
+
+.idea/
+
+setup.sh
