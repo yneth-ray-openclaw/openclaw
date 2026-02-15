@@ -1,0 +1,57 @@
+services:
+  - name: brave
+    port: 8082
+    upstream: https://api.search.brave.com
+    host: api.search.brave.com
+    rate_zone: api_search
+    burst: 5
+    auth_header: "X-Subscription-Token $brave_key"
+    extra_proxy_headers:
+      Accept: application/json
+    strip_auth: true
+    timeouts:
+      read: 30s
+      connect: 10s
+
+  - name: github-api
+    port: 8083
+    upstream: https://api.github.com
+    host: api.github.com
+    rate_zone: api_general
+    burst: 10
+    auth_header: 'Authorization "Bearer $github_token"'
+    extra_proxy_headers:
+      User-Agent: '"OpenClaw-Proxy/1.0"'
+      Accept: "application/vnd.github+json"
+      X-GitHub-Api-Version: "2022-11-28"
+    strip_auth: false
+    timeouts:
+      read: 60s
+      connect: 30s
+
+  - name: google
+    port: 8085
+    upstream: https://www.googleapis.com
+    host: www.googleapis.com
+    rate_zone: api_general
+    burst: 10
+    auth_header: 'Authorization "Bearer $google_access_token"'
+    extra_proxy_headers: {}
+    strip_auth: false
+    timeouts:
+      read: 60s
+      connect: 30s
+
+  - name: viber
+    port: 8086
+    upstream: https://chatapi.viber.com/pa/
+    host: chatapi.viber.com
+    rate_zone: api_general
+    burst: 10
+    auth_header: "X-Viber-Auth-Token $viber_token"
+    extra_proxy_headers:
+      Content-Type: application/json
+    strip_auth: true
+    timeouts:
+      read: 30s
+      connect: 10s

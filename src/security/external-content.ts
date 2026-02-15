@@ -100,6 +100,43 @@ const EXTERNAL_SOURCE_LABELS: Record<ExternalContentSource, string> = {
   unknown: "External",
 };
 
+/**
+ * Hidden Unicode characters used for prompt injection attacks.
+ * These embed invisible instructions that LLMs can read but humans cannot see.
+ *
+ * Note: This regex covers BMP codepoints. Tag characters (U+E0001-U+E007F)
+ * require surrogate pair matching and are handled separately.
+ */
+const HIDDEN_UNICODE_PATTERN =
+  /[\u200B-\u200F\u202A-\u202E\u2060-\u2064\u2066-\u2069\u00AD\u061C\uFEFF]/g;
+
+/**
+ * Detect hidden Unicode characters in text.
+ * Returns found status, positions, and codepoint strings.
+ */
+export function detectHiddenUnicode(text: string): {
+  found: boolean;
+  positions: number[];
+  chars: string[];
+} {
+  const positions: number[] = [];
+  const chars: string[] = [];
+  HIDDEN_UNICODE_PATTERN.lastIndex = 0;
+  let match: RegExpExecArray | null;
+  while ((match = HIDDEN_UNICODE_PATTERN.exec(text)) !== null) {
+    positions.push(match.index);
+    chars.push(`U+${match[0].charCodeAt(0).toString(16).toUpperCase().padStart(4, "0")}`);
+  }
+  return { found: positions.length > 0, positions, chars };
+}
+
+/**
+ * Strip hidden Unicode characters from text.
+ */
+export function stripHiddenUnicode(text: string): string {
+  return text.replace(HIDDEN_UNICODE_PATTERN, "");
+}
+
 const FULLWIDTH_ASCII_OFFSET = 0xfee0;
 
 // Map of Unicode angle bracket homoglyphs to their ASCII equivalents.
@@ -219,9 +256,18 @@ export type WrapExternalContentOptions = {
 export function wrapExternalContent(content: string, options: WrapExternalContentOptions): string {
   const { source, sender, subject, includeWarning = true } = options;
 
-  const sanitized = replaceMarkers(content);
+  // Detect and strip hidden Unicode before wrapping
+  const hiddenResult = detectHiddenUnicode(content);
+  const cleaned = hiddenResult.found ? stripHiddenUnicode(content) : content;
+  const sanitized = replaceMarkers(cleaned);
   const sourceLabel = EXTERNAL_SOURCE_LABELS[source] ?? "External";
   const metadataLines: string[] = [`Source: ${sourceLabel}`];
+
+  if (hiddenResult.found) {
+    metadataLines.push(
+      `WARNING: ${hiddenResult.positions.length} hidden Unicode character(s) detected and stripped (${hiddenResult.chars.slice(0, 5).join(", ")})`,
+    );
+  }
 
   if (sender) {
     metadataLines.push(`From: ${sender}`);

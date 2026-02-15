@@ -102,6 +102,15 @@ skills-lock.json
 
 # Local iOS signing overrides
 apps/ios/LocalSigning.xcconfig
+# Security monitoring stack
+security/suricata/logs/
+security/suricata/etc/
+security/suricata/rules/
+security/.env.security
+
+.idea/
+
+setup.sh
 
 # Xcode build directories (xcodebuild output)
 apps/ios/build/

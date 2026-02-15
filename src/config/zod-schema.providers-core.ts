@@ -162,6 +162,7 @@ export const TelegramAccountSchemaBase = z
     network: z
       .object({
         autoSelectFamily: z.boolean().optional(),
+        apiBaseUrl: z.string().optional(),
         dnsResultOrder: z.enum(["ipv4first", "verbatim"]).optional(),
       })
       .strict()

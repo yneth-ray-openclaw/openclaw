@@ -301,6 +301,12 @@ export const ToolsWebSearchSchema = z
       })
       .strict()
       .optional(),
+    brave: z
+      .object({
+        baseUrl: z.string().optional(),
+      })
+      .strict()
+      .optional(),
   })
   .strict()
   .optional();

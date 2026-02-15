@@ -1,0 +1,146 @@
+services:
+  security-suricata:
+    build: ./suricata
+    container_name: security-suricata
+    network_mode: host
+    cap_add:
+      - NET_ADMIN
+      - NET_RAW
+      - SYS_NICE
+    security_opt:
+      - no-new-privileges:true
+    environment:
+      - RULE_UPDATE_HOUR=${RULE_UPDATE_HOUR:-3}
+      - SURICATA_DETECT_THREAD_RATIO=${SURICATA_DETECT_THREAD_RATIO:-0.5}
+    volumes:
+      - ./suricata/logs:/var/log/suricata
+    deploy:
+      resources:
+        limits:
+          cpus: "${SURICATA_CPU_LIMIT:-1.0}"
+          memory: "${SURICATA_MEM_LIMIT:-512M}"
+    restart: unless-stopped
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  security-tracee:
+    image: aquasec/tracee:0.22.0
+    container_name: security-tracee
+    privileged: true
+    pid: host
+    volumes:
+      - /etc/os-release:/etc/os-release-host:ro
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - ./tracee/policies:/tracee/policies:ro
+      - /tmp/tracee:/tmp/tracee
+    command:
+      - --output=json
+      - --output=option:parse-arguments
+      - --policy=/tracee/policies/openclaw.yaml
+    deploy:
+      resources:
+        limits:
+          cpus: "${TRACEE_CPU_LIMIT:-0.5}"
+          memory: "${TRACEE_MEM_LIMIT:-256M}"
+    restart: unless-stopped
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  security-llm-proxy:
+    build:
+      context: .
+      dockerfile: llm-proxy/Dockerfile
+    container_name: security-llm-proxy
+    env_file: .env.security
+    read_only: true
+    tmpfs:
+      - /tmp
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    networks:
+      - security-net
+      - openclaw_net
+    ports:
+      - "${SECURITY_LLM_PROXY_PORT:-10001}:8080"
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "/usr/local/bin/healthcheck"]
+      interval: 30s
+      timeout: 5s
+      start_period: 10s
+      retries: 3
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  security-api-proxy:
+    build:
+      context: .
+      dockerfile: api-proxy/Dockerfile
+    container_name: security-api-proxy
+    env_file: .env.security
+    read_only: true
+    tmpfs:
+      - /var/cache/nginx:uid=101,gid=101
+      - /var/run:uid=101,gid=101
+      - /tmp
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    networks:
+      - security-net
+      - openclaw_net
+    ports:
+      - "${SECURITY_API_PROXY_PORT:-10000}:8080"
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "/usr/local/bin/healthcheck"]
+      interval: 30s
+      timeout: 10s
+      start_period: 5s
+      retries: 3
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  security-alerter:
+    build: ./alerter
+    container_name: security-alerter
+    env_file: .env.security
+    read_only: true
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    volumes:
+      - ./suricata/logs:/var/log/suricata:ro
+      - /tmp/tracee:/tmp/tracee:ro
+    depends_on:
+      - security-suricata
+      - security-tracee
+    restart: unless-stopped
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+networks:
+  security-net:
+    driver: bridge
+  openclaw_net:
+    name: openclaw_openclaw_net
+    external: true

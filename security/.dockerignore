@@ -1,0 +1,6 @@
+**/Dockerfile
+docker-compose.security.yml
+README.md
+setup.sh
+.env.security
+.dockerignore

@@ -25,6 +25,8 @@ export type TelegramActionConfig = {
 export type TelegramNetworkConfig = {
   /** Override Node's autoSelectFamily behavior (true = enable, false = disable). */
   autoSelectFamily?: boolean;
+  /** Override the Telegram Bot API base URL (defaults to https://api.telegram.org). */
+  apiBaseUrl?: string;
   /**
    * DNS result order for network requests ("ipv4first" | "verbatim").
    * Set to "ipv4first" to prioritize IPv4 addresses and work around IPv6 issues.

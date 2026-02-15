@@ -308,11 +308,14 @@ export async function deliverReplies(params: {
   return { delivered: hasDelivered };
 }
 
+const DEFAULT_TELEGRAM_API_BASE = "https://api.telegram.org";
+
 export async function resolveMedia(
   ctx: TelegramContext,
   maxBytes: number,
   token: string,
   proxyFetch?: typeof fetch,
+  apiBaseUrl?: string,
 ): Promise<{
   path: string;
   contentType?: string;
@@ -321,7 +324,8 @@ export async function resolveMedia(
 } | null> {
   const msg = ctx.message;
   const downloadAndSaveTelegramFile = async (filePath: string, fetchImpl: typeof fetch) => {
-    const url = `https://api.telegram.org/file/bot${token}/${filePath}`;
+    const apiBase = apiBaseUrl?.replace(/\/+$/, "") || DEFAULT_TELEGRAM_API_BASE;
+    const url = `${apiBase}/file/bot${token}/${file.file_path}`;
     const fetched = await fetchRemoteMedia({
       url,
       fetchImpl,
