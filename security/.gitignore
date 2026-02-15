@@ -1,0 +1,10 @@
+# Suricata runtime data
+suricata/logs/
+suricata/etc/
+suricata/rules/
+
+# Tracee runtime data
+tracee/logs/
+
+# Environment with secrets
+.env.security

@@ -51,6 +51,7 @@ export type TelegramBotOptions = {
   mediaMaxMb?: number;
   replyToMode?: ReplyToMode;
   proxyFetch?: typeof fetch;
+  apiBaseUrl?: string;
   config?: OpenClawConfig;
   updateOffset?: {
     lastUpdateId?: number | null;
