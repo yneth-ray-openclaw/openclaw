@@ -1,6 +1,11 @@
 #!/bin/sh
 set -e
 
+# Remove any stale NFQUEUE rules from prior crashed/killed runs
+echo "[suricata-ips] Flushing stale NFQUEUE rules..."
+while iptables -D FORWARD -j NFQUEUE --queue-num 0 2>/dev/null; do :; done
+while ip6tables -D FORWARD -j NFQUEUE --queue-num 0 2>/dev/null; do :; done
+
 echo "[suricata-ips] Setting up NFQUEUE on FORWARD chain..."
 iptables -I FORWARD -j NFQUEUE --queue-num 0
 ip6tables -I FORWARD -j NFQUEUE --queue-num 0 2>/dev/null || true
