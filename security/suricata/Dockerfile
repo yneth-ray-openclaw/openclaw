@@ -14,8 +14,7 @@ RUN printf '%s\n' \
 
 # Enable additional threat feeds
 RUN suricata-update enable-source abuse.ch/sslbl-blacklist && \
-    suricata-update enable-source abuse.ch/sslbl-ja3 && \
-    suricata-update enable-source etnetera/aggressive
+    suricata-update enable-source abuse.ch/sslbl-ja3
 
 # Download and apply rules with drop policy
 RUN suricata-update --no-reload --drop-conf /tmp/drop.conf

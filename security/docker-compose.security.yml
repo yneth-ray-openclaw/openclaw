@@ -18,7 +18,7 @@ services:
       resources:
         limits:
           cpus: "${SURICATA_CPU_LIMIT:-1.0}"
-          memory: "${SURICATA_MEM_LIMIT:-512M}"
+          memory: "${SURICATA_MEM_LIMIT:-1024M}"
     restart: unless-stopped
     logging:
       driver: json-file

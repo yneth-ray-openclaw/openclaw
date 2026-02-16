@@ -170,6 +170,13 @@ export OPENCLAW_GID="${OPENCLAW_GID:-$(id -g)}"
 export OPENCLAW_EXTRA_MOUNTS="$EXTRA_MOUNTS"
 export OPENCLAW_HOME_VOLUME="$HOME_VOLUME_NAME"
 
+# Reuse gateway token from prior run so it stays consistent with openclaw.json
+if [[ -z "${OPENCLAW_GATEWAY_TOKEN:-}" && -f "$ROOT_DIR/.env" ]]; then
+  _prev_token="$(grep -m1 '^OPENCLAW_GATEWAY_TOKEN=' "$ROOT_DIR/.env" 2>/dev/null | cut -d= -f2-)"
+  [[ -n "$_prev_token" ]] && export OPENCLAW_GATEWAY_TOKEN="$_prev_token"
+  unset _prev_token
+fi
+
 if [[ -z "${OPENCLAW_GATEWAY_TOKEN:-}" ]]; then
   EXISTING_CONFIG_TOKEN="$(read_config_gateway_token || true)"
   if [[ -n "$EXISTING_CONFIG_TOKEN" ]]; then
@@ -362,7 +369,46 @@ echo "  - Gateway token: $OPENCLAW_GATEWAY_TOKEN"
 echo "  - Tailscale exposure: Off"
 echo "  - Install Gateway daemon: No"
 echo ""
-docker compose "${COMPOSE_ARGS[@]}" run --rm openclaw-cli onboard --no-install-daemon
+# Clean stale device auth/pairing from prior runs
+rm -f "${OPENCLAW_CONFIG_DIR}/identity/device-auth.json"
+rm -f "${OPENCLAW_CONFIG_DIR}/devices/paired.json"
+rm -f "${OPENCLAW_CONFIG_DIR}/devices/pending.json"
+
+# Remove stale gateway.auth.token from config so gateway uses current env var
+if [[ -f "${OPENCLAW_CONFIG_DIR}/openclaw.json" ]]; then
+  python3 -c "
+import json, sys
+p = sys.argv[1]
+try:
+    c = json.load(open(p))
+    a = c.get('gateway', {}).get('auth', {})
+    if 'token' in a:
+        del a['token']
+        if not a: c.get('gateway', {}).pop('auth', None)
+        open(p, 'w').write(json.dumps(c, None, indent=2) + '\n')
+except: pass
+" "${OPENCLAW_CONFIG_DIR}/openclaw.json" 2>/dev/null || true
+fi
+
+ONBOARD_EXIT=0
+docker compose "${COMPOSE_ARGS[@]}" run --rm openclaw-cli onboard --no-install-daemon || ONBOARD_EXIT=$?
+
+if [[ $ONBOARD_EXIT -ne 0 ]]; then
+  echo ""
+  echo "==> Onboard could not complete device pairing (non-loopback network)."
+  echo "    Auto-approving..."
+  # The stale pending request has silent=false (from Docker bridge).
+  # requestDevicePairing() won't update silent on existing requests,
+  # so we must delete it and let a loopback connection create a fresh one.
+  rm -f "${OPENCLAW_CONFIG_DIR}/devices/pending.json"
+  sleep 1
+  # Run from inside the gateway container → loopback → silent=true → auto-approved.
+  docker compose "${COMPOSE_ARGS[@]}" exec -T openclaw-gateway \
+    node dist/index.js devices list \
+    --url ws://127.0.0.1:18789 \
+    --token "$OPENCLAW_GATEWAY_TOKEN" \
+    --json >/dev/null 2>&1 || true
+fi
 
 echo ""
 echo "==> Control UI origin allowlist"

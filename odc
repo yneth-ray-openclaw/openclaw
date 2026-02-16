@@ -1,0 +1,22 @@
+#!/usr/bin/env bash
+DIR="$(cd "$(dirname "$0")" && pwd)"
+
+DC=(docker compose
+  -f "$DIR/docker-compose.yml"
+  -f "$DIR/docker-compose.extra.yml"
+  -f "$DIR/docker-compose.custom.yml"
+)
+
+case "$1" in
+  cli)
+    shift
+    exec "${DC[@]}" run --rm openclaw-cli "$@"
+    ;;
+  gw)
+    shift
+    exec "${DC[@]}" run --rm openclaw-gateway "$@"
+    ;;
+  *)
+    exec "${DC[@]}" "$@"
+    ;;
+esac
