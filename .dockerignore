@@ -72,3 +72,4 @@ vitest*.config.ts
 .env*
 
 setup.sh
+docker-setup.sh
