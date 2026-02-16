@@ -34,6 +34,8 @@ export OPENCLAW_BRIDGE_PORT="${OPENCLAW_BRIDGE_PORT:-18790}"
 export OPENCLAW_GATEWAY_BIND="${OPENCLAW_GATEWAY_BIND:-lan}"
 export OPENCLAW_IMAGE="$IMAGE_NAME"
 export OPENCLAW_DOCKER_APT_PACKAGES="${OPENCLAW_DOCKER_APT_PACKAGES:-}"
+export OPENCLAW_UID="${OPENCLAW_UID:-$(id -u)}"
+export OPENCLAW_GID="${OPENCLAW_GID:-$(id -g)}"
 export OPENCLAW_EXTRA_MOUNTS="$EXTRA_MOUNTS"
 export OPENCLAW_HOME_VOLUME="$HOME_VOLUME_NAME"
 
@@ -69,7 +71,6 @@ YAML
     printf '      - %s:/home/node/.openclaw\n' "$OPENCLAW_CONFIG_DIR" >>"$EXTRA_COMPOSE_FILE"
     printf '      - %s:/home/node/.openclaw/workspace\n' "$OPENCLAW_WORKSPACE_DIR" >>"$EXTRA_COMPOSE_FILE"
   fi
-
   for mount in "$@"; do
     printf '      - %s\n' "$mount" >>"$EXTRA_COMPOSE_FILE"
   done
@@ -84,7 +85,6 @@ YAML
     printf '      - %s:/home/node/.openclaw\n' "$OPENCLAW_CONFIG_DIR" >>"$EXTRA_COMPOSE_FILE"
     printf '      - %s:/home/node/.openclaw/workspace\n' "$OPENCLAW_WORKSPACE_DIR" >>"$EXTRA_COMPOSE_FILE"
   fi
-
   for mount in "$@"; do
     printf '      - %s\n' "$mount" >>"$EXTRA_COMPOSE_FILE"
   done
@@ -109,8 +109,7 @@ if [[ -n "$EXTRA_MOUNTS" ]]; then
   done
 fi
 
-if [[ -n "$HOME_VOLUME_NAME" || ${#VALID_MOUNTS[@]} -gt 0 ]]; then
-  # Bash 3.2 + nounset treats "${array[@]}" on an empty array as unbound.
+if [[ -n "$HOME_VOLUME_NAME" ]] || [[ ${#VALID_MOUNTS[@]} -gt 0 ]]; then
   if [[ ${#VALID_MOUNTS[@]} -gt 0 ]]; then
     write_extra_compose "$HOME_VOLUME_NAME" "${VALID_MOUNTS[@]}"
   else
@@ -118,6 +117,19 @@ if [[ -n "$HOME_VOLUME_NAME" || ${#VALID_MOUNTS[@]} -gt 0 ]]; then
   fi
   COMPOSE_FILES+=("$EXTRA_COMPOSE_FILE")
 fi
+
+# Allow external scripts to inject additional compose override files.
+# OPENCLAW_COMPOSE_OVERRIDES is a colon-separated list of file paths.
+if [[ -n "${OPENCLAW_COMPOSE_OVERRIDES:-}" ]]; then
+  IFS=':' read -r -a _ovr_files <<< "$OPENCLAW_COMPOSE_OVERRIDES"
+  for _ovr in "${_ovr_files[@]}"; do
+    _ovr="${_ovr#"${_ovr%%[![:space:]]*}"}"
+    _ovr="${_ovr%"${_ovr##*[![:space:]]}"}"
+    [[ -n "$_ovr" && -f "$_ovr" ]] && COMPOSE_FILES+=("$_ovr")
+  done
+  unset _ovr_files _ovr
+fi
+
 for compose_file in "${COMPOSE_FILES[@]}"; do
   COMPOSE_ARGS+=("-f" "$compose_file")
 done
@@ -174,7 +186,10 @@ upsert_env "$ENV_FILE" \
   OPENCLAW_IMAGE \
   OPENCLAW_EXTRA_MOUNTS \
   OPENCLAW_HOME_VOLUME \
-  OPENCLAW_DOCKER_APT_PACKAGES
+  OPENCLAW_DOCKER_APT_PACKAGES \
+  OPENCLAW_UID \
+  OPENCLAW_GID \
+  OPENCLAW_GATEWAY_URL
 
 echo "==> Building Docker image: $IMAGE_NAME"
 docker build \
