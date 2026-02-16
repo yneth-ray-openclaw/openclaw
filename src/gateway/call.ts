@@ -111,10 +111,9 @@ export function buildGatewayConnectionDetails(
       : preferLan && lanIPv4
         ? `${scheme}://${lanIPv4}:${localPort}`
         : `${scheme}://127.0.0.1:${localPort}`;
+  const envUrl = process.env.OPENCLAW_GATEWAY_URL?.trim() || undefined;
   const urlOverride =
-    typeof options.url === "string" && options.url.trim().length > 0
-      ? options.url.trim()
-      : undefined;
+    typeof options.url === "string" && options.url.trim().length > 0 ? options.url.trim() : envUrl;
   const remoteUrl =
     typeof remote?.url === "string" && remote.url.trim().length > 0 ? remote.url.trim() : undefined;
   const remoteMisconfigured = isRemoteMode && !urlOverride && !remoteUrl;
