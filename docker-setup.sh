@@ -385,7 +385,8 @@ try:
     if 'token' in a:
         del a['token']
         if not a: c.get('gateway', {}).pop('auth', None)
-        open(p, 'w').write(json.dumps(c, None, indent=2) + '\n')
+        out = json.dumps(c, indent=2) + '\n'
+        open(p, 'w').write(out)
 except: pass
 " "${OPENCLAW_CONFIG_DIR}/openclaw.json" 2>/dev/null || true
 fi
