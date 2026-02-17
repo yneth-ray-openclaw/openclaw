@@ -326,12 +326,15 @@ export async function resolveMedia(
   const downloadAndSaveTelegramFile = async (filePath: string, fetchImpl: typeof fetch) => {
     const apiBase = apiBaseUrl?.replace(/\/+$/, "") || DEFAULT_TELEGRAM_API_BASE;
     const url = `${apiBase}/file/bot${token}/${file.file_path}`;
+    // When a custom apiBaseUrl is configured (e.g. a local proxy), allow private
+    // network access since the URL is from a trusted admin-configured source.
+    const ssrfPolicy = apiBaseUrl ? TELEGRAM_MEDIA_SSRF_POLICY : undefined;
     const fetched = await fetchRemoteMedia({
       url,
       fetchImpl,
       filePathHint: filePath,
+      ssrfPolicy,
       maxBytes,
-      ssrfPolicy: TELEGRAM_MEDIA_SSRF_POLICY,
     });
     const originalName = fetched.fileName ?? filePath;
     return saveMediaBuffer(fetched.buffer, fetched.contentType, "inbound", maxBytes, originalName);
