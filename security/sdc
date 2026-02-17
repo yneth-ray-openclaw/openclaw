@@ -1,0 +1,18 @@
+#!/usr/bin/env bash
+DIR="$(cd "$(dirname "$0")" && pwd)"
+
+DC=(docker compose -f "$DIR/docker-compose.security.yml")
+
+case "$1" in
+  rebuild)
+    shift
+    "${DC[@]}" build "$@" && "${DC[@]}" up -d "$@"
+    ;;
+  logs)
+    shift
+    exec "${DC[@]}" logs -f "$@"
+    ;;
+  *)
+    exec "${DC[@]}" "$@"
+    ;;
+esac
