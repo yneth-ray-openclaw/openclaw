@@ -248,6 +248,119 @@ describe("docker-setup.sh", () => {
     expect(syntaxCheck.stderr).not.toContain("declare: -A: invalid option");
   });
 
+  it("OPENCLAW_SKIP_ONBOARDING=1 skips onboarding and preserves pairings", async () => {
+    if (!sandbox) {
+      throw new Error("sandbox missing");
+    }
+
+    const configDir = join(sandbox.rootDir, "config");
+    await mkdir(join(configDir, "devices"), { recursive: true });
+    await mkdir(join(configDir, "identity"), { recursive: true });
+
+    // Pre-create config and pairing files
+    const ocConfig = { gateway: { auth: { token: "old-token" } } };
+    await writeFile(join(configDir, "openclaw.json"), JSON.stringify(ocConfig));
+    await writeFile(join(configDir, "devices/paired.json"), '{"devices":[]}');
+    await writeFile(join(configDir, "identity/device-auth.json"), '{"id":"dev1"}');
+
+    // Reset docker stub log
+    await writeFile(sandbox.logPath, "");
+
+    const result = spawnSync("bash", [sandbox.scriptPath], {
+      cwd: sandbox.rootDir,
+      env: createEnv(sandbox, { OPENCLAW_SKIP_ONBOARDING: "1" }),
+      stdio: ["ignore", "pipe", "pipe"],
+    });
+    expect(result.status).toBe(0);
+
+    // Pairings and config must survive
+    const paired = await readFile(join(configDir, "devices/paired.json"), "utf8");
+    expect(paired).toBe('{"devices":[]}');
+    const devAuth = await readFile(join(configDir, "identity/device-auth.json"), "utf8");
+    expect(devAuth).toBe('{"id":"dev1"}');
+    const cfg = JSON.parse(await readFile(join(configDir, "openclaw.json"), "utf8"));
+    expect(cfg.gateway.auth.token).toBe("old-token");
+
+    // No onboard command should have run
+    const log = await readFile(sandbox.logPath, "utf8");
+    expect(log).not.toContain("onboard");
+
+    const stdout = result.stdout?.toString() ?? "";
+    expect(stdout).toContain("Skipping onboarding");
+  });
+
+  it("matching token preserves pairings and skips onboarding", async () => {
+    if (!sandbox) {
+      throw new Error("sandbox missing");
+    }
+
+    const configDir = join(sandbox.rootDir, "config");
+    await mkdir(join(configDir, "devices"), { recursive: true });
+    await mkdir(join(configDir, "identity"), { recursive: true });
+
+    // Pre-create config with the SAME token as OPENCLAW_GATEWAY_TOKEN
+    const ocConfig = { gateway: { auth: { token: "test-token" } } };
+    await writeFile(join(configDir, "openclaw.json"), JSON.stringify(ocConfig));
+    await writeFile(join(configDir, "devices/paired.json"), '{"devices":[]}');
+    await writeFile(join(configDir, "identity/device-auth.json"), '{"id":"dev1"}');
+
+    await writeFile(sandbox.logPath, "");
+
+    const result = spawnSync("bash", [sandbox.scriptPath], {
+      cwd: sandbox.rootDir,
+      env: createEnv(sandbox, { OPENCLAW_GATEWAY_TOKEN: "test-token" }),
+      stdio: ["ignore", "pipe", "pipe"],
+    });
+    expect(result.status).toBe(0);
+
+    // Pairings must survive
+    const paired = await readFile(join(configDir, "devices/paired.json"), "utf8");
+    expect(paired).toBe('{"devices":[]}');
+    const devAuth = await readFile(join(configDir, "identity/device-auth.json"), "utf8");
+    expect(devAuth).toBe('{"id":"dev1"}');
+
+    // No onboard command should have run
+    const log = await readFile(sandbox.logPath, "utf8");
+    expect(log).not.toContain("onboard");
+
+    const stdout = result.stdout?.toString() ?? "";
+    expect(stdout).toContain("Config token matches");
+  });
+
+  it("mismatched token triggers full onboarding and cleans pairings", async () => {
+    if (!sandbox) {
+      throw new Error("sandbox missing");
+    }
+
+    const configDir = join(sandbox.rootDir, "config");
+    await mkdir(join(configDir, "devices"), { recursive: true });
+    await mkdir(join(configDir, "identity"), { recursive: true });
+
+    // Pre-create config with a DIFFERENT token
+    const ocConfig = { gateway: { auth: { token: "old-token" } } };
+    await writeFile(join(configDir, "openclaw.json"), JSON.stringify(ocConfig));
+    await writeFile(join(configDir, "devices/paired.json"), '{"devices":[]}');
+    await writeFile(join(configDir, "identity/device-auth.json"), '{"id":"dev1"}');
+
+    await writeFile(sandbox.logPath, "");
+
+    const result = spawnSync("bash", [sandbox.scriptPath], {
+      cwd: sandbox.rootDir,
+      env: createEnv(sandbox, { OPENCLAW_GATEWAY_TOKEN: "new-token" }),
+      stdio: ["ignore", "pipe", "pipe"],
+    });
+    expect(result.status).toBe(0);
+
+    // Pairing files should be deleted
+    const { existsSync } = await import("node:fs");
+    expect(existsSync(join(configDir, "devices/paired.json"))).toBe(false);
+    expect(existsSync(join(configDir, "identity/device-auth.json"))).toBe(false);
+
+    // Onboard command should have run
+    const log = await readFile(sandbox.logPath, "utf8");
+    expect(log).toContain("onboard");
+  });
+
   it("keeps docker-compose gateway command in sync", async () => {
     const compose = await readFile(join(repoRoot, "docker-compose.yml"), "utf8");
     expect(compose).not.toContain("gateway-daemon");

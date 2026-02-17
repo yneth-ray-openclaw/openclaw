@@ -169,6 +169,28 @@ export OPENCLAW_UID="${OPENCLAW_UID:-$(id -u)}"
 export OPENCLAW_GID="${OPENCLAW_GID:-$(id -g)}"
 export OPENCLAW_EXTRA_MOUNTS="$EXTRA_MOUNTS"
 export OPENCLAW_HOME_VOLUME="$HOME_VOLUME_NAME"
+export OPENCLAW_SKIP_ONBOARDING="${OPENCLAW_SKIP_ONBOARDING:-}"
+
+_is_truthy() {
+  case "$(printf '%s' "${1:-}" | tr '[:upper:]' '[:lower:]')" in
+    1|true|yes|on) return 0 ;;
+    *) return 1 ;;
+  esac
+}
+
+_config_token() {
+  local cfg="${OPENCLAW_CONFIG_DIR}/openclaw.json"
+  [[ -f "$cfg" ]] || return 0
+  python3 -c "
+import json, sys
+try:
+    with open(sys.argv[1]) as f:
+        c = json.loads(f.read())
+    print(c.get('gateway', {}).get('auth', {}).get('token', ''))
+except Exception:
+    print('')
+" "$cfg" 2>/dev/null
+}
 
 # Reuse gateway token from prior run so it stays consistent with openclaw.json
 if [[ -z "${OPENCLAW_GATEWAY_TOKEN:-}" && -f "$ROOT_DIR/.env" ]]; then
@@ -343,6 +365,7 @@ upsert_env "$ENV_FILE" \
   OPENCLAW_DOCKER_APT_PACKAGES \
   OPENCLAW_UID \
   OPENCLAW_GID \
+  OPENCLAW_SKIP_ONBOARDING \
   OPENCLAW_GATEWAY_URL \
   TELEGRAM_API_BASE_URL \
   LLM_PROXY_URL
@@ -362,28 +385,44 @@ else
   fi
 fi
 
-echo ""
-echo "==> Onboarding (interactive)"
-echo "When prompted:"
-echo "  - Gateway bind: lan"
-echo "  - Gateway auth: token"
-echo "  - Gateway token: $OPENCLAW_GATEWAY_TOKEN"
-echo "  - Tailscale exposure: Off"
-echo "  - Install Gateway daemon: No"
-echo ""
-# Stop gateway from prior run so it restarts fresh with current env/config.
-# 'docker compose run' below re-starts it automatically as a dependency.
-docker compose "${COMPOSE_ARGS[@]}" stop openclaw-gateway 2>/dev/null || true
+_RAN_ONBOARDING=false
 
-# Clean stale device auth/pairing from prior runs
-rm -f "${OPENCLAW_CONFIG_DIR}/identity/device-auth.json"
-rm -f "${OPENCLAW_CONFIG_DIR}/devices/paired.json"
-rm -f "${OPENCLAW_CONFIG_DIR}/devices/pending.json"
+if _is_truthy "${OPENCLAW_SKIP_ONBOARDING:-}"; then
+  echo ""
+  echo "==> Skipping onboarding (OPENCLAW_SKIP_ONBOARDING is set)"
+else
+  _existing_token="$(_config_token)"
+  _token_matches=false
+  if [[ -n "$_existing_token" && "$_existing_token" == "$OPENCLAW_GATEWAY_TOKEN" ]]; then
+    _token_matches=true
+  fi
 
-# Remove stale gateway.auth.token from config so gateway uses current env var.
-# If the file is empty/corrupt (prior failed run), delete it — onboard recreates it.
-if [[ -f "${OPENCLAW_CONFIG_DIR}/openclaw.json" ]]; then
-  python3 -c "
+  if [[ "$_token_matches" == true ]]; then
+    echo ""
+    echo "==> Config token matches — skipping onboarding and preserving pairings"
+  else
+    echo ""
+    echo "==> Onboarding (interactive)"
+    echo "When prompted:"
+    echo "  - Gateway bind: lan"
+    echo "  - Gateway auth: token"
+    echo "  - Gateway token: $OPENCLAW_GATEWAY_TOKEN"
+    echo "  - Tailscale exposure: Off"
+    echo "  - Install Gateway daemon: No"
+    echo ""
+    # Stop gateway from prior run so it restarts fresh with current env/config.
+    # 'docker compose run' below re-starts it automatically as a dependency.
+    docker compose "${COMPOSE_ARGS[@]}" stop openclaw-gateway 2>/dev/null || true
+
+    # Clean stale device auth/pairing from prior runs
+    rm -f "${OPENCLAW_CONFIG_DIR}/identity/device-auth.json"
+    rm -f "${OPENCLAW_CONFIG_DIR}/devices/paired.json"
+    rm -f "${OPENCLAW_CONFIG_DIR}/devices/pending.json"
+
+    # Remove stale gateway.auth.token from config so gateway uses current env var.
+    # If the file is empty/corrupt (prior failed run), delete it — onboard recreates it.
+    if [[ -f "${OPENCLAW_CONFIG_DIR}/openclaw.json" ]]; then
+      python3 -c "
 import json, sys, os
 p = sys.argv[1]
 with open(p) as f:
@@ -401,24 +440,29 @@ if 'token' in a:
         f.write(json.dumps(c, indent=2) + '\n')
     os.replace(tmp, p)
 " "${OPENCLAW_CONFIG_DIR}/openclaw.json" 2>/dev/null \
-    || rm -f "${OPENCLAW_CONFIG_DIR}/openclaw.json"
+        || rm -f "${OPENCLAW_CONFIG_DIR}/openclaw.json"
+    fi
+
+    docker compose "${COMPOSE_ARGS[@]}" run --rm openclaw-cli onboard --no-install-daemon || true
+    _RAN_ONBOARDING=true
+  fi
+  unset _existing_token _token_matches
 fi
 
-docker compose "${COMPOSE_ARGS[@]}" run --rm openclaw-cli onboard --no-install-daemon || true
-
-# Onboard over Docker bridge can't auto-pair (non-loopback → silent=false).
-# It may still exit 0, so always attempt recovery regardless of exit code.
-echo ""
-echo "==> Ensuring device pairing (auto-approve via loopback)..."
-# Delete any pending request with silent=false so a fresh loopback one can be created.
-rm -f "${OPENCLAW_CONFIG_DIR}/devices/pending.json"
-sleep 1
-# Run from inside the gateway container → loopback → silent=true → auto-approved.
-docker compose "${COMPOSE_ARGS[@]}" exec -T openclaw-gateway \
-  node dist/index.js devices list \
-  --url ws://127.0.0.1:18789 \
-  --token "$OPENCLAW_GATEWAY_TOKEN" \
-  --json >/dev/null 2>&1 || true
+# Auto-pairing loopback trick — only when onboarding actually ran
+if [[ "$_RAN_ONBOARDING" == true ]]; then
+  echo ""
+  echo "==> Ensuring device pairing (auto-approve via loopback)..."
+  # Delete any pending request with silent=false so a fresh loopback one can be created.
+  rm -f "${OPENCLAW_CONFIG_DIR}/devices/pending.json"
+  sleep 1
+  # Run from inside the gateway container → loopback → silent=true → auto-approved.
+  docker compose "${COMPOSE_ARGS[@]}" exec -T openclaw-gateway \
+    node dist/index.js devices list \
+    --url ws://127.0.0.1:18789 \
+    --token "$OPENCLAW_GATEWAY_TOKEN" \
+    --json >/dev/null 2>&1 || true
+fi
 
 echo ""
 echo "==> Control UI origin allowlist"
