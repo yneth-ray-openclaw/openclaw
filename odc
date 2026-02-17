@@ -16,6 +16,22 @@ case "$1" in
     shift
     exec "${DC[@]}" run --rm openclaw-gateway "$@"
     ;;
+  rebuild)
+    shift
+    "${DC[@]}" build "$@" && "${DC[@]}" up -d
+    ;;
+  logs)
+    shift
+    exec "${DC[@]}" logs -f "$@"
+    ;;
+  logs-gw)
+    shift
+    exec "${DC[@]}" logs -f openclaw-gateway "$@"
+    ;;
+  logs-cli)
+    shift
+    exec "${DC[@]}" logs -f openclaw-cli "$@"
+    ;;
   *)
     exec "${DC[@]}" "$@"
     ;;
