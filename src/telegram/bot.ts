@@ -134,9 +134,11 @@ export function createTelegramBot(opts: TelegramBotOptions) {
     typeof telegramCfg?.timeoutSeconds === "number" && Number.isFinite(telegramCfg.timeoutSeconds)
       ? Math.max(1, Math.floor(telegramCfg.timeoutSeconds))
       : undefined;
+  const apiRoot = opts.apiBaseUrl?.trim() || undefined;
   const client: ApiClientOptions | undefined =
-    shouldProvideFetch || timeoutSeconds
+    shouldProvideFetch || timeoutSeconds || apiRoot
       ? {
+          ...(apiRoot ? { apiRoot } : {}),
           ...(shouldProvideFetch && fetchImpl ? { fetch: fetchForClient } : {}),
           ...(timeoutSeconds ? { timeoutSeconds } : {}),
         }

@@ -27,6 +27,7 @@ logging.basicConfig(level=logging.INFO, format="%(asctime)s %(name)s %(levelname
 LLM_API_BASE = os.environ.get("LLM_API_BASE", "https://api.anthropic.com").rstrip("/")
 LLM_API_KEY = os.environ.get("LLM_API_KEY", "")
 LLM_API_PROVIDER = os.environ.get("LLM_API_PROVIDER", "anthropic").lower()
+IS_OAUTH_TOKEN = LLM_API_KEY.startswith("sk-ant-oat")
 
 GUARD_URL = os.environ.get("GUARD_URL", "")
 GUARD_ENABLED = os.environ.get("GUARD_ENABLED", "false").lower() == "true"
@@ -223,7 +224,22 @@ def build_upstream_headers(request: Request) -> dict[str, str]:
     # Inject real API key
     if LLM_API_PROVIDER == "openai":
         headers["authorization"] = f"Bearer {LLM_API_KEY}"
+    elif IS_OAUTH_TOKEN:
+        # OAuth setup tokens require Bearer auth + beta flags
+        headers["authorization"] = f"Bearer {LLM_API_KEY}"
+        headers["anthropic-version"] = "2023-06-01"
+        # Merge oauth betas with any existing anthropic-beta from the request
+        existing_beta = headers.get("anthropic-beta", "")
+        beta_parts = [b.strip() for b in existing_beta.split(",") if b.strip()]
+        for required in ("oauth-2025-04-20", "claude-code-20250219"):
+            if required not in beta_parts:
+                beta_parts.append(required)
+        headers["anthropic-beta"] = ",".join(beta_parts)
+        # Identity headers required by Anthropic for OAuth
+        headers["user-agent"] = "claude-cli/2.1.2 (external, cli)"
+        headers["x-app"] = "cli"
     else:
+        # Regular API key
         headers["x-api-key"] = LLM_API_KEY
         headers["anthropic-version"] = "2023-06-01"
 
