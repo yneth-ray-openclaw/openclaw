@@ -48,6 +48,8 @@ budgets:
   monthly: { limit_usd: 500.00, warn_at_pct: 80, downgrade_at_pct: 90 }
   downgrade_steps: 1              # how many tiers to drop when over budget
   over_budget_action: "allow"     # "allow" = continue at lowest tier, "reject" = return 429
+  max_push_within_minutes: 15     # push to max tier when quota resets within this many minutes
+  max_push_tier: "tier1"          # which tier to push to (empty = highest tier)
 
 # Default tier when classifier is unavailable or errors
 default_tier: "tier1"

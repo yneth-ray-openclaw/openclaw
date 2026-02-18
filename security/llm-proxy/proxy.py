@@ -20,8 +20,6 @@ import logging
 import os
 import unicodedata
 from contextlib import asynccontextmanager
-from dataclasses import dataclass, asdict
-from datetime import datetime, timezone, timedelta
 
 import httpx
 from fastapi import FastAPI, Request, Response
@@ -51,44 +49,9 @@ if not LLM_API_KEY:
 
 _router_config = None  # router_config.RouterConfig | None
 _budget_manager = None  # budget.BudgetManager | None
+_budget_config = None   # router_config.BudgetConfig | None
+_quota_tracker = None   # budget.QuotaTracker | None
 _smart_router_ready = False
-
-# --- Token usage tracking ---
-
-
-@dataclass
-class ModelUsage:
-    input_tokens: int = 0
-    output_tokens: int = 0
-    cache_read_input_tokens: int = 0
-    cache_creation_input_tokens: int = 0
-    requests: int = 0
-
-
-_usage_store: dict[tuple[str, str], ModelUsage] = {}
-_usage_lock = asyncio.Lock()
-USAGE_FILE = "/tmp/llm-proxy-usage.jsonl"
-
-
-async def record_usage(model: str, input_tokens: int, output_tokens: int,
-                       cache_read: int = 0, cache_creation: int = 0):
-    """Accumulate token counts into the current hour bucket."""
-    hour = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H")
-    async with _usage_lock:
-        key = (hour, model)
-        if key not in _usage_store:
-            _usage_store[key] = ModelUsage()
-        entry = _usage_store[key]
-        entry.input_tokens += input_tokens
-        entry.output_tokens += output_tokens
-        entry.cache_read_input_tokens += cache_read
-        entry.cache_creation_input_tokens += cache_creation
-        entry.requests += 1
-    logger.info("Token usage: model=%s input=%d output=%d cache_read=%d cache_create=%d",
-                model, input_tokens, output_tokens, cache_read, cache_creation)
-    # Feed budget manager if active
-    if _budget_manager is not None:
-        await _budget_manager.record_cost(model, input_tokens, output_tokens)
 
 
 class SSETokenExtractor:
@@ -174,48 +137,9 @@ class SSETokenExtractor:
         return self.input_tokens > 0 or self.output_tokens > 0
 
 
-async def _flush_usage_to_disk():
-    """Write completed hour buckets to disk as JSONL and remove from memory."""
-    current_hour = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H")
-    async with _usage_lock:
-        completed_keys = [k for k in _usage_store if k[0] != current_hour]
-        if not completed_keys:
-            return
-        entries = []
-        for key in completed_keys:
-            hour, model = key
-            usage = _usage_store.pop(key)
-            entry = asdict(usage)
-            entry["hour"] = hour
-            entry["model"] = model
-            entry["flushed_at"] = datetime.now(timezone.utc).isoformat()
-            entries.append(entry)
-    # Write outside lock
-    if entries:
-        with open(USAGE_FILE, "a") as f:
-            for entry in entries:
-                f.write(json.dumps(entry) + "\n")
-        logger.info("Flushed %d usage entries to %s", len(entries), USAGE_FILE)
-
-
-async def _hourly_flush_loop():
-    """Background task that flushes usage to disk shortly after each hour."""
-    while True:
-        now = datetime.now(timezone.utc)
-        # Sleep until 1 minute past the next hour
-        next_hour = (now + timedelta(hours=1)).replace(minute=0, second=0, microsecond=0)
-        target = next_hour + timedelta(minutes=1)
-        sleep_seconds = (target - now).total_seconds()
-        await asyncio.sleep(sleep_seconds)
-        try:
-            await _flush_usage_to_disk()
-        except Exception as e:
-            logger.error("Usage flush error: %s", e)
-
-
 def _init_smart_router():
     """Initialize smart router components. Called during lifespan startup."""
-    global _router_config, _budget_manager, _smart_router_ready
+    global _router_config, _budget_manager, _budget_config, _quota_tracker, _smart_router_ready
 
     if not SMART_ROUTER_ENABLED:
         logger.info("Smart router disabled (SMART_ROUTER_ENABLED=false)")
@@ -224,7 +148,7 @@ def _init_smart_router():
     try:
         from router_config import load_config
         from classifier import init_classifier
-        from budget import BudgetManager
+        from budget import BudgetManager, QuotaTracker
         from litellm_bridge import init_litellm
 
         _router_config = load_config()
@@ -237,6 +161,12 @@ def _init_smart_router():
 
         # Initialize budget manager
         _budget_manager = BudgetManager(_router_config.budgets)
+        _budget_config = _router_config.budgets
+
+        # Initialize quota tracker for Anthropic rate-limit headers
+        _quota_tracker = QuotaTracker(
+            push_within_minutes=_router_config.budgets.max_push_within_minutes,
+        )
 
         # Initialize LiteLLM for cross-provider routing
         init_litellm(_router_config.providers)
@@ -257,19 +187,7 @@ async def lifespan(app: FastAPI):
     """Manage background tasks for the app lifecycle."""
     # Initialize smart router (runs synchronously at startup)
     _init_smart_router()
-
-    flush_task = asyncio.create_task(_hourly_flush_loop())
     yield
-    flush_task.cancel()
-    try:
-        await flush_task
-    except asyncio.CancelledError:
-        pass
-    # Final flush on shutdown
-    try:
-        await _flush_usage_to_disk()
-    except Exception as e:
-        logger.error("Final usage flush error: %s", e)
 
 
 # --- Hidden Unicode detection ---
@@ -523,29 +441,6 @@ async def health():
     return result
 
 
-@app.get("/usage")
-async def usage():
-    """Return current-hour token usage stats broken down by model."""
-    current_hour = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H")
-    models: dict[str, dict] = {}
-    totals = {"input_tokens": 0, "output_tokens": 0, "cache_read_input_tokens": 0,
-              "cache_creation_input_tokens": 0, "requests": 0}
-    async with _usage_lock:
-        for (hour, model), entry in _usage_store.items():
-            if hour != current_hour:
-                continue
-            models[model] = asdict(entry)
-            totals["input_tokens"] += entry.input_tokens
-            totals["output_tokens"] += entry.output_tokens
-            totals["cache_read_input_tokens"] += entry.cache_read_input_tokens
-            totals["cache_creation_input_tokens"] += entry.cache_creation_input_tokens
-            totals["requests"] += entry.requests
-    result = {"hour": current_hour, "models": models, "totals": totals}
-    if _budget_manager is not None:
-        result["budget"] = _budget_manager.status()
-    return JSONResponse(result)
-
-
 @app.get("/router/status")
 async def router_status():
     """Return smart router status, classifier info, and budget status."""
@@ -573,6 +468,8 @@ async def router_status():
     }
     if _budget_manager is not None:
         result["budget"] = _budget_manager.status()
+    if _quota_tracker is not None:
+        result["quota"] = _quota_tracker.status()
     return JSONResponse(result)
 
 
@@ -631,6 +528,10 @@ async def _forward_via_httpx(
             media_type="application/json",
         )
 
+    # Extract Anthropic rate-limit headers for quota tracking
+    if _quota_tracker is not None:
+        _quota_tracker.update(upstream_response.headers)
+
     # Build response headers, excluding hop-by-hop headers
     response_headers = {}
     hop_by_hop = {"transfer-encoding", "connection", "keep-alive"}
@@ -657,15 +558,9 @@ async def _forward_via_httpx(
                     yield chunk
             finally:
                 extractor.finalize()
-                if extractor.has_usage():
+                if extractor.has_usage() and _budget_manager is not None:
                     model = extractor.model or request_model
-                    await record_usage(
-                        model,
-                        extractor.input_tokens,
-                        extractor.output_tokens,
-                        cache_read=extractor.cache_read_input_tokens,
-                        cache_creation=extractor.cache_creation_input_tokens,
-                    )
+                    await _budget_manager.record_cost(model, extractor.input_tokens, extractor.output_tokens)
                 await upstream_response.aclose()
                 await client.aclose()
 
@@ -686,14 +581,10 @@ async def _forward_via_httpx(
                     resp_json = json.loads(resp_body)
                     usage_data = resp_json.get("usage", {})
                     model = resp_json.get("model", request_model)
-                    if usage_data:
-                        await record_usage(
-                            model,
-                            usage_data.get("input_tokens", usage_data.get("prompt_tokens", 0)),
-                            usage_data.get("output_tokens", usage_data.get("completion_tokens", 0)),
-                            cache_read=usage_data.get("cache_read_input_tokens", 0),
-                            cache_creation=usage_data.get("cache_creation_input_tokens", 0),
-                        )
+                    if usage_data and _budget_manager is not None:
+                        input_tk = usage_data.get("input_tokens", usage_data.get("prompt_tokens", 0))
+                        output_tk = usage_data.get("output_tokens", usage_data.get("completion_tokens", 0))
+                        await _budget_manager.record_cost(model, input_tk, output_tk)
                 except (json.JSONDecodeError, UnicodeDecodeError):
                     pass
 
@@ -828,8 +719,14 @@ async def proxy(request: Request, path: str):
             # 1. Classify request complexity
             tier = classify_request(body_dict, _router_config.default_tier)
 
-            # 2. Budget check → possibly force downgrade
-            if _budget_manager is not None:
+            # 2. Time-based max push: reset is imminent, use remaining quota on best model
+            if _quota_tracker is not None and _quota_tracker.should_max_push():
+                push_tier = _budget_config.max_push_tier or _router_config.tier_order[0]
+                tier = push_tier
+                logger.info("Quota resets soon: pushing to max tier %s", tier)
+
+            # 3. Budget check → possibly force downgrade (skipped if already max-pushed)
+            elif _budget_manager is not None:
                 if _budget_manager.is_over_budget():
                     if _budget_manager.over_budget_action == "reject":
                         return Response(
@@ -843,7 +740,7 @@ async def proxy(request: Request, path: str):
                     tier = downgrade_tier(_router_config, tier, _budget_manager.downgrade_steps)
                     logger.info("Budget pressure: downgraded to %s", tier)
 
-            # 3. Resolve provider + model for this tier (with fallback)
+            # 4. Resolve provider + model for this tier (with fallback)
             exclude_providers: set[str] = set()
             target = resolve_target(_router_config, tier, exclude_providers)
 
@@ -868,7 +765,7 @@ async def proxy(request: Request, path: str):
                     tier, provider.name, target_model, client_format, target_format,
                 )
 
-                # 4. Route: same-provider or cross-provider
+                # 5. Route: same-provider or cross-provider
                 if client_format == target_format:
                     # SAME FORMAT: change model, forward directly via httpx
                     routed_body = body_dict.copy()
