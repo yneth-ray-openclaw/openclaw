@@ -1,8 +1,17 @@
 diff --git a/dist/providers/anthropic.js b/dist/providers/anthropic.js
-index 0bf2b894799bbc9ef5fda07bc44ea4301c9f395a..a3c59689e82a530b473ebe34ed9c239c1d82da03 100644
+index 0bf2b894799bbc9ef5fda07bc44ea4301c9f395a..7a462595b1a177c1c4d180811878ef096f3b660a 100644
 --- a/dist/providers/anthropic.js
 +++ b/dist/providers/anthropic.js
-@@ -195,6 +195,17 @@ export const streamAnthropic = (model, context, options) => {
+@@ -160,6 +160,8 @@ export const streamAnthropic = (model, context, options) => {
+                     output.usage.totalTokens =
+                         output.usage.input + output.usage.output + output.usage.cacheRead + output.usage.cacheWrite;
+                     calculateCost(model, output.usage);
++                    // Update model from actual API response (may differ when smart router reroutes)
++                    output.model = event.message.model || output.model;
+                 }
+                 else if (event.type === "content_block_start") {
+                     if (event.content_block.type === "text") {
+@@ -195,6 +197,17 @@ export const streamAnthropic = (model, context, options) => {
                          output.content.push(block);
                          stream.push({ type: "toolcall_start", contentIndex: output.content.length - 1, partial: output });
                      }
@@ -20,7 +29,7 @@ index 0bf2b894799bbc9ef5fda07bc44ea4301c9f395a..a3c59689e82a530b473ebe34ed9c239c
                  }
                  else if (event.type === "content_block_delta") {
                      if (event.delta.type === "text_delta") {
-@@ -599,6 +610,10 @@ function convertMessages(messages, model, isOAuthToken, cacheControl) {
+@@ -599,6 +612,10 @@ function convertMessages(messages, model, isOAuthToken, cacheControl) {
                          input: block.arguments ?? {},
                      });
                  }
