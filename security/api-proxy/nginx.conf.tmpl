@@ -9,6 +9,7 @@ env GOOGLE_CLIENT_ID;
 env GOOGLE_CLIENT_SECRET;
 env GOOGLE_REFRESH_TOKEN;
 env VIBER_BOT_TOKEN;
+env EXA_API_KEY;
 
 worker_processes auto;
 error_log /var/log/nginx/error.log warn;
@@ -34,6 +35,7 @@ http {
     js_set $github_token_base64 tokens.get_github_token_base64;
     js_set $google_access_token tokens.get_google_token;
     js_set $viber_token tokens.get_viber_token;
+    js_set $exa_key tokens.get_exa_key;
 
     # Force IPv4-only DNS resolution (Docker networks often lack IPv6 connectivity)
     # 127.0.0.11 is Docker's embedded DNS resolver
@@ -80,12 +82,12 @@ http {
         server_name _;
 
         location /health {
-            return 200 '{"status":"ok","services":["telegram","brave","github-api","github-git","google","viber"],"llm":"use security-llm-proxy:8080"}';
+            return 200 '{"status":"ok","services":["telegram","brave","github-api","github-git","google","viber","exa"],"llm":"use security-llm-proxy:8080"}';
             add_header Content-Type application/json;
         }
 
         location /status {
-            return 200 'OpenClaw API Proxy\n\nPorts:\n  8081 - Telegram API\n  8082 - Brave Search API\n  8083 - GitHub API\n  8084 - GitHub Git (HTTP)\n  8085 - Google API\n  8086 - Viber API\n  LLM  - security-llm-proxy:8080 (separate container)\n';
+            return 200 'OpenClaw API Proxy\n\nPorts:\n  8081 - Telegram API\n  8082 - Brave Search API\n  8083 - GitHub API\n  8084 - GitHub Git (HTTP)\n  8085 - Google API\n  8086 - Viber API\n  8087 - Exa Search API\n  LLM  - security-llm-proxy:8080 (separate container)\n';
             add_header Content-Type text/plain;
         }
 

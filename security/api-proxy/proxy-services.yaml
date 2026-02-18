@@ -55,3 +55,17 @@ services:
     timeouts:
       read: 30s
       connect: 10s
+
+  - name: exa
+    port: 8087
+    upstream: https://api.exa.ai
+    host: api.exa.ai
+    rate_zone: api_search
+    burst: 5
+    auth_header: "x-api-key $exa_key"
+    extra_proxy_headers:
+      Accept: application/json
+    strip_auth: true
+    timeouts:
+      read: 30s
+      connect: 10s

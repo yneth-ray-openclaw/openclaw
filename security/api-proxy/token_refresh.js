@@ -3,6 +3,8 @@
 /// Provides per-service token getters (read from env) and a js_periodic
 /// handler that rotates the Google OAuth2 access token every 45 minutes.
 
+/* eslint-disable no-unused-vars */
+
 function get_telegram_token(r) {
   return process.env.TELEGRAM_BOT_TOKEN || "";
 }
@@ -30,6 +32,10 @@ function get_google_token(r) {
 
 function get_viber_token(r) {
   return process.env.VIBER_BOT_TOKEN || "";
+}
+
+function get_exa_key(r) {
+  return process.env.EXA_API_KEY || "";
 }
 
 async function refresh_google_token(s) {
@@ -82,5 +88,6 @@ export default {
   get_github_token_base64,
   get_google_token,
   get_viber_token,
+  get_exa_key,
   refresh_google_token,
 };
