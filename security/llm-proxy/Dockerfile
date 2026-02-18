@@ -10,12 +10,17 @@ COPY healthcheck/main.go /src/main.go
 WORKDIR /src
 RUN CGO_ENABLED=0 go build -ldflags='-s -w' -o /healthcheck main.go
 
-# Stage 3: Distroless Python runtime — no shell, no package manager
-FROM gcr.io/distroless/python3-debian12:nonroot
+# Stage 3: python:3.11-slim runtime (needed for RouteLLM / PyTorch / Transformers)
+FROM python:3.11-slim
+
+RUN groupadd -r appuser && useradd -r -g appuser -d /app -s /sbin/nologin appuser
 
 COPY --from=deps-builder /app/deps /app/deps
-COPY llm-proxy/proxy.py /app/proxy.py
+COPY llm-proxy/*.py /app/
 COPY --from=healthcheck-builder /healthcheck /usr/local/bin/healthcheck
+
+# Router config is mounted as a volume at runtime (optional)
+# COPY llm-proxy/router-config.yaml /app/router-config.yaml
 
 ENV PYTHONPATH=/app/deps
 
@@ -23,5 +28,7 @@ HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
     CMD ["/usr/local/bin/healthcheck"]
 
 EXPOSE 8080
+
+USER appuser
 
 ENTRYPOINT ["python3", "-m", "uvicorn", "proxy:app", "--host", "0.0.0.0", "--port", "8080", "--app-dir", "/app"]

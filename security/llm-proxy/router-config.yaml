@@ -1,0 +1,53 @@
+# Smart LLM Router Configuration
+# Ollama running on host, accessed via host.docker.internal.
+# Environment variables can be referenced with ${VAR_NAME}.
+#
+# Tiers are fully dynamic: define as many as you need.
+# The classifier needs N-1 thresholds for N tiers (descending order).
+# Each tier model can have extra_params that get merged into the request body.
+
+enabled: true
+
+# Provider definitions — each needs a type, base_url, and api_key
+providers:
+  anthropic:
+    type: anthropic
+    base_url: "https://api.anthropic.com"
+    api_key: "${ANTHROPIC_API_KEY}"
+  ollama:
+    type: openai  # Ollama exposes an OpenAI-compatible API
+    base_url: "http://host.docker.internal:11434/v1"
+    api_key: "ollama"  # Ollama ignores auth but the field is required
+
+# RouteLLM classifier settings
+classifier:
+  router: "mf"                    # matrix factorization (recommended, lightweight)
+  # N-1 descending thresholds for N tiers.
+  # score > 0.7 → first tier, > 0.3 → second tier, else → third tier
+  thresholds: [0.7, 0.3]
+  heuristic_bypass: true          # skip ML classifier for obvious cases
+
+# Model tiers — ordered from highest to lowest priority.
+# First available provider in each tier wins.
+# extra_params are merged into the request body (e.g., thinking budget).
+tiers:
+  tier1:  # Complex tasks — Anthropic cloud
+    - provider: anthropic
+      model: "claude-sonnet-4-5-20250929"
+  tier2:  # Moderate tasks — local Ollama
+    - provider: ollama
+      model: "llama3.1:8b"
+  tier3:  # Simple tasks — local Ollama
+    - provider: ollama
+      model: "llama3.1:8b"
+
+# Cost budget limits (rolling windows)
+budgets:
+  hourly:  { limit_usd: 5.00,   warn_at_pct: 80, downgrade_at_pct: 90 }
+  daily:   { limit_usd: 50.00,  warn_at_pct: 80, downgrade_at_pct: 90 }
+  monthly: { limit_usd: 500.00, warn_at_pct: 80, downgrade_at_pct: 90 }
+  downgrade_steps: 1              # how many tiers to drop when over budget
+  over_budget_action: "allow"     # "allow" = continue at lowest tier, "reject" = return 429
+
+# Default tier when classifier is unavailable or errors
+default_tier: "tier1"

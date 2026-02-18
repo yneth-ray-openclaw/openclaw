@@ -35,6 +35,11 @@ http {
     js_set $google_access_token tokens.get_google_token;
     js_set $viber_token tokens.get_viber_token;
 
+    # Force IPv4-only DNS resolution (Docker networks often lack IPv6 connectivity)
+    # 127.0.0.11 is Docker's embedded DNS resolver
+    resolver 127.0.0.11 ipv6=off valid=300s;
+    resolver_timeout 5s;
+
     log_format main '$remote_addr - $remote_user [$time_local] "$request" '
                     '$status $body_bytes_sent "$http_referer" '
                     '"$http_user_agent" "$http_x_forwarded_for"';
@@ -108,9 +113,11 @@ http {
         location ~ ^/bot(.*)$ {
             limit_req zone=api_general burst=10 nodelay;
 
+            set $telegram_upstream https://api.telegram.org;
+
             rewrite ^/bot.*?/(.*)$ /bot$telegram_token/$1 break;
 
-            proxy_pass https://api.telegram.org;
+            proxy_pass $telegram_upstream;
             proxy_ssl_server_name on;
             proxy_set_header Host api.telegram.org;
             proxy_set_header Content-Type $http_content_type;
@@ -128,9 +135,11 @@ http {
         location /file/ {
             limit_req zone=api_general burst=10 nodelay;
 
+            set $telegram_upstream https://api.telegram.org;
+
             rewrite ^/file/bot.*?/(.*)$ /file/bot$telegram_token/$1 break;
 
-            proxy_pass https://api.telegram.org;
+            proxy_pass $telegram_upstream;
             proxy_ssl_server_name on;
             proxy_set_header Host api.telegram.org;
             proxy_redirect off;
@@ -158,7 +167,8 @@ http {
         location / {
             limit_req zone={{ .rate_zone }} burst={{ .burst }} nodelay;
 
-            proxy_pass {{ .upstream }};
+            set $upstream_{{ .port }} {{ .upstream }};
+            proxy_pass $upstream_{{ .port }};
             proxy_ssl_server_name on;
             proxy_set_header Host {{ .host }};
             proxy_set_header {{ .auth_header }};
@@ -194,7 +204,8 @@ http {
         location / {
             limit_req zone=api_general burst=10 nodelay;
 
-            proxy_pass https://github.com;
+            set $github_git_upstream https://github.com;
+            proxy_pass $github_git_upstream;
             proxy_ssl_server_name on;
             proxy_set_header Host github.com;
             proxy_set_header Authorization "Basic $github_token_base64";
