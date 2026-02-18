@@ -1,0 +1,99 @@
+# Smart LLM Router Configuration
+# Copy to router-config.yaml and adjust for your setup.
+# Environment variables can be referenced with ${VAR_NAME}.
+#
+# Tiers are fully dynamic: define as many as you need.
+# The classifier needs N-1 thresholds for N tiers (descending order).
+# Each tier model can have extra_params that get merged into the request body.
+
+enabled: true
+
+# Provider definitions — each needs a type, base_url, and api_key
+providers:
+  anthropic:
+    type: anthropic
+    base_url: "https://api.anthropic.com"
+    api_key: "${ANTHROPIC_API_KEY}"
+  openai:
+    type: openai
+    base_url: "https://api.openai.com"
+    api_key: "${OPENAI_API_KEY}"
+  google:
+    type: openai  # Gemini supports OpenAI-compatible API
+    base_url: "https://generativelanguage.googleapis.com/v1beta/openai"
+    api_key: "${GEMINI_API_KEY}"
+  # Ollama — local models via OpenAI-compatible API
+  # Requires Ollama running on host and extra_hosts in docker-compose
+  # ollama:
+  #   type: openai
+  #   base_url: "http://host.docker.internal:11434/v1"
+  #   api_key: "ollama"
+
+# RouteLLM classifier settings
+classifier:
+  router: "mf"                    # matrix factorization (recommended, lightweight)
+  # N-1 descending thresholds for N tiers.
+  # score > 0.7 → first tier, > 0.3 → second tier, else → third tier
+  thresholds: [0.7, 0.3]
+  heuristic_bypass: true          # skip ML classifier for obvious cases
+
+# Model tiers — ordered from highest to lowest priority.
+# First available provider in each tier wins.
+# extra_params are merged into the request body (e.g., thinking budget).
+tiers:
+  tier1:  # Complex tasks — expensive, most capable
+    - provider: anthropic
+      model: "claude-opus-4-6"
+  tier2:  # Moderate tasks — mid-tier
+    - provider: anthropic
+      model: "claude-sonnet-4-5-20250929"
+    - provider: openai
+      model: "gpt-4o-mini"
+  tier3:  # Simple tasks — cheap, fast
+    - provider: anthropic
+      model: "claude-3-5-haiku-20241022"
+    - provider: google
+      model: "gemini-2.0-flash"
+
+# --- Alternative: Opus 4.6 at different effort levels ---
+# Uncomment below and comment the tiers above to route all requests
+# to the same model with different thinking budgets.
+#
+# classifier:
+#   router: "mf"
+#   thresholds: [0.7, 0.4, 0.15]    # 4 thresholds for 4 tiers
+#   heuristic_bypass: true
+#
+# tiers:
+#   high_effort:
+#     - provider: anthropic
+#       model: "claude-opus-4-6"
+#       extra_params:
+#         thinking: { type: "enabled", budget_tokens: 32000 }
+#         max_tokens: 16000
+#   mid_effort:
+#     - provider: anthropic
+#       model: "claude-opus-4-6"
+#       extra_params:
+#         thinking: { type: "enabled", budget_tokens: 10000 }
+#         max_tokens: 8000
+#   low_effort:
+#     - provider: anthropic
+#       model: "claude-opus-4-6"
+#       extra_params:
+#         thinking: { type: "enabled", budget_tokens: 2000 }
+#         max_tokens: 4000
+#   minimal:
+#     - provider: anthropic
+#       model: "claude-3-5-haiku-20241022"
+
+# Cost budget limits (rolling windows)
+budgets:
+  hourly:  { limit_usd: 5.00,   warn_at_pct: 80, downgrade_at_pct: 90 }
+  daily:   { limit_usd: 50.00,  warn_at_pct: 80, downgrade_at_pct: 90 }
+  monthly: { limit_usd: 500.00, warn_at_pct: 80, downgrade_at_pct: 90 }
+  downgrade_steps: 1              # how many tiers to drop when over budget
+  over_budget_action: "allow"     # "allow" = continue at lowest tier, "reject" = return 429
+
+# Default tier when classifier is unavailable or errors
+default_tier: "tier1"

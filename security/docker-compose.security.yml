@@ -58,9 +58,16 @@ services:
       dockerfile: llm-proxy/Dockerfile
     container_name: security-llm-proxy
     env_file: .env.security
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    environment:
+      - SMART_ROUTER_ENABLED=${SMART_ROUTER_ENABLED:-false}
+      - ROUTER_CONFIG_PATH=/app/router-config.yaml
     read_only: true
     tmpfs:
       - /tmp
+    volumes:
+      - ./llm-proxy/router-config.yaml:/app/router-config.yaml:ro
     security_opt:
       - no-new-privileges:true
     cap_drop:
