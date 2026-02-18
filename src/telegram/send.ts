@@ -131,14 +131,15 @@ function resolveTelegramClientOptions(
     Number.isFinite(account.config.timeoutSeconds)
       ? Math.max(1, Math.floor(account.config.timeoutSeconds))
       : undefined;
-  return fetchImpl || timeoutSeconds
+  const apiRoot = account.config.network?.apiBaseUrl?.trim() || undefined;
+  return fetchImpl || timeoutSeconds || apiRoot
     ? {
+        ...(apiRoot ? { apiRoot } : {}),
         ...(fetchImpl ? { fetch: fetchImpl as unknown as ApiClientOptions["fetch"] } : {}),
         ...(timeoutSeconds ? { timeoutSeconds } : {}),
       }
     : undefined;
 }
-
 function resolveToken(explicit: string | undefined, params: { accountId: string; token: string }) {
   if (explicit?.trim()) {
     return explicit.trim();
