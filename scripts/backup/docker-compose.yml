@@ -1,0 +1,58 @@
+version: '3.8'
+
+services:
+  openclaw-backup:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: openclaw-backup
+    restart: unless-stopped
+    
+    # Mount the source and destination directories
+    volumes:
+      - /home/node/.openclaw:/home/node/.openclaw:ro
+      - ./backups:/backups
+      - ./crontab:/etc/cron.d/openclaw-backup:ro
+      - ./logs:/var/log:rw
+    
+    # Environment configuration
+    environment:
+      # Backup settings
+      BACKUP_SOURCE: /home/node/.openclaw
+      BACKUP_DEST: /backups
+      RETENTION_DAYS: 7
+      
+      # Telegram notifications (populate these with your values)
+      TELEGRAM_BOT_TOKEN: ${TELEGRAM_BOT_TOKEN}
+      TELEGRAM_CHAT_ID: ${TELEGRAM_CHAT_ID}
+      
+      # Logging
+      LOG_FILE: /var/log/openclaw-backup.log
+      
+      # Timezone
+      TZ: UTC
+    
+    # Resource limits
+    deploy:
+      resources:
+        limits:
+          cpus: '1'
+          memory: 512M
+        reservations:
+          cpus: '0.5'
+          memory: 256M
+    
+    # Health check
+    healthcheck:
+      test: ["CMD", "test", "-f", "/var/log/openclaw-backup.log"]
+      interval: 5m
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+    
+    # Logging driver
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
