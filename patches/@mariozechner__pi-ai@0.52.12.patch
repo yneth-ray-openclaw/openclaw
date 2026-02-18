@@ -1,0 +1,33 @@
+diff --git a/dist/providers/anthropic.js b/dist/providers/anthropic.js
+index 0bf2b894799bbc9ef5fda07bc44ea4301c9f395a..a3c59689e82a530b473ebe34ed9c239c1d82da03 100644
+--- a/dist/providers/anthropic.js
++++ b/dist/providers/anthropic.js
+@@ -195,6 +195,17 @@ export const streamAnthropic = (model, context, options) => {
+                         output.content.push(block);
+                         stream.push({ type: "toolcall_start", contentIndex: output.content.length - 1, partial: output });
+                     }
++                    else {
++                        // Preserve unknown content blocks (e.g., server_tool_use, tool_search_tool_result)
++                        // as raw passthrough to maintain conversation history integrity.
++                        const block = {
++                            type: "raw",
++                            rawType: event.content_block.type,
++                            rawBlock: { ...event.content_block },
++                            index: event.index,
++                        };
++                        output.content.push(block);
++                    }
+                 }
+                 else if (event.type === "content_block_delta") {
+                     if (event.delta.type === "text_delta") {
+@@ -599,6 +610,10 @@ function convertMessages(messages, model, isOAuthToken, cacheControl) {
+                         input: block.arguments ?? {},
+                     });
+                 }
++                else if (block.type === "raw" && block.rawBlock) {
++                    // Pass through raw blocks (server_tool_use, tool_search_tool_result, etc.)
++                    blocks.push(block.rawBlock);
++                }
+             }
+             if (blocks.length === 0)
+                 continue;
