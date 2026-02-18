@@ -2,13 +2,27 @@
 
 # OpenClaw ~/.openclaw directory backup script
 # Features:
-#   - Max compression (tar.xz with ultra compression)
+#   - Configurable compression: zstd (fast, default), gzip, or xz (slow)
 #   - Auto-rotation based on configurable retention days
 #   - Telegram notifications
 #   - Logging
 #   - Error handling
 
 set -euo pipefail
+
+# Get the directory where this script is located
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
+# Load .env file if it exists (check script directory first, then current directory)
+if [[ -f "$SCRIPT_DIR/.env" ]]; then
+    set -a  # automatically export all variables
+    source "$SCRIPT_DIR/.env"
+    set +a
+elif [[ -f ".env" ]]; then
+    set -a
+    source ".env"
+    set +a
+fi
 
 # Configuration (can be overridden via environment variables)
 BACKUP_SOURCE="${BACKUP_SOURCE:-$HOME/.openclaw}"
@@ -17,6 +31,12 @@ RETENTION_DAYS="${RETENTION_DAYS:-7}"
 TELEGRAM_BOT_TOKEN="${TELEGRAM_BOT_TOKEN:-}"
 TELEGRAM_CHAT_ID="${TELEGRAM_CHAT_ID:-}"
 LOG_FILE="${LOG_FILE:-/var/log/openclaw-backup.log}"
+COMPRESSION="${COMPRESSION:-zstd}"  # Options: zstd (fast), gzip (compatible), xz (slow but smallest)
+
+# Expand tilde in paths (needed when values come from .env with quotes)
+BACKUP_SOURCE="${BACKUP_SOURCE/#\~/$HOME}"
+BACKUP_DEST="${BACKUP_DEST/#\~/$HOME}"
+LOG_FILE="${LOG_FILE/#\~/$HOME}"
 
 # Ensure directories exist
 mkdir -p "$BACKUP_DEST" "$(dirname "$LOG_FILE")"
@@ -54,8 +74,8 @@ notify_telegram() {
 # Cleanup old backups
 cleanup_old_backups() {
     log "INFO" "Cleaning up backups older than ${RETENTION_DAYS} days"
-    
-    find "$BACKUP_DEST" -maxdepth 1 -name "openclaw-backup-*.tar.xz" -type f -mtime +${RETENTION_DAYS} | while read -r old_backup; do
+
+    find "$BACKUP_DEST" -maxdepth 1 \( -name "openclaw-backup-*.tar.xz" -o -name "openclaw-backup-*.tar.gz" -o -name "openclaw-backup-*.tar.zst" \) -type f -mtime +${RETENTION_DAYS} | while read -r old_backup; do
         log "INFO" "Removing old backup: $old_backup"
         rm -f "$old_backup"
     done
@@ -64,13 +84,35 @@ cleanup_old_backups() {
 # Main backup function
 perform_backup() {
     local backup_timestamp=$(date +'%Y%m%d-%H%M%S')
-    local backup_file="${BACKUP_DEST}/openclaw-backup-${backup_timestamp}.tar.xz"
     local size_before=$(du -sh "$BACKUP_SOURCE" 2>/dev/null | cut -f1 || echo "unknown")
-    
-    log "INFO" "Starting backup of $BACKUP_SOURCE (size: $size_before)"
-    
-    # Create backup with maximum compression
-    if tar --xz --extreme -cf "$backup_file" -C "$(dirname "$BACKUP_SOURCE")" "$(basename "$BACKUP_SOURCE")" 2>/dev/null; then
+
+    # Set compression options
+    local tar_flag ext
+    case "$COMPRESSION" in
+        zstd)
+            tar_flag="--zstd"
+            ext="tar.zst"
+            ;;
+        gzip)
+            tar_flag="-z"
+            ext="tar.gz"
+            ;;
+        xz)
+            tar_flag="-J"
+            ext="tar.xz"
+            ;;
+        *)
+            log "ERROR" "Unknown compression: $COMPRESSION"
+            return 1
+            ;;
+    esac
+
+    local backup_file="${BACKUP_DEST}/openclaw-backup-${backup_timestamp}.${ext}"
+
+    log "INFO" "Starting backup of $BACKUP_SOURCE (size: $size_before, compression: $COMPRESSION)"
+
+    # Create backup with selected compression
+    if tar $tar_flag -cf "$backup_file" -C "$(dirname "$BACKUP_SOURCE")" "$(basename "$BACKUP_SOURCE")" 2>&1; then
         local backup_size=$(du -h "$backup_file" | cut -f1)
         log "INFO" "Backup completed successfully"
         log "INFO" "Backup file: $backup_file"
