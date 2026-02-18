@@ -79,6 +79,8 @@ class BudgetConfig:
     monthly: BudgetWindow | None = None
     downgrade_steps: int = 1
     over_budget_action: str = "allow"  # "allow" | "reject"
+    max_push_within_minutes: int = 15  # push to max tier when reset is this close
+    max_push_tier: str = ""            # tier to push to; empty = highest (tier_order[0])
 
 
 @dataclass
@@ -130,6 +132,8 @@ def _parse_budgets(raw: dict) -> BudgetConfig:
     config = BudgetConfig(
         downgrade_steps=int(raw.get("downgrade_steps", 1)),
         over_budget_action=raw.get("over_budget_action", "allow"),
+        max_push_within_minutes=int(raw.get("max_push_within_minutes", 15)),
+        max_push_tier=raw.get("max_push_tier", ""),
     )
     if "hourly" in raw and isinstance(raw["hourly"], dict):
         config.hourly = _parse_budget_window(raw["hourly"])

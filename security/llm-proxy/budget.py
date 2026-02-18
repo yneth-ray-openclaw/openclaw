@@ -8,6 +8,7 @@ Signals tier downgrade when approaching budget limits.
 import asyncio
 import logging
 from collections import deque
+from collections.abc import Mapping
 from dataclasses import dataclass
 from datetime import datetime, timezone, timedelta
 
@@ -158,3 +159,89 @@ class BudgetManager:
         result["over_budget"] = self.is_over_budget()
         result["over_budget_action"] = self._config.over_budget_action
         return result
+
+
+# --- Anthropic quota tracking (rate-limit headers) ---
+
+
+@dataclass
+class QuotaSnapshot:
+    tokens_limit: int
+    tokens_remaining: int
+    tokens_reset: datetime
+    requests_limit: int
+    requests_remaining: int
+    requests_reset: datetime
+    updated_at: datetime
+
+
+class QuotaTracker:
+    """Tracks Anthropic session quota from rate-limit response headers.
+
+    When the token quota resets soon and tokens remain, signals that the
+    proxy should push requests to the highest (most capable) tier to
+    maximize value before the window resets unused.
+    """
+
+    def __init__(self, push_within_minutes: int = 15):
+        self._latest: QuotaSnapshot | None = None
+        self._push_within_minutes = push_within_minutes
+
+    def update(self, headers: Mapping[str, str]) -> None:
+        """Update from anthropic-ratelimit-* response headers."""
+        tokens_reset_raw = headers.get("anthropic-ratelimit-tokens-reset")
+        if not tokens_reset_raw:
+            return  # no quota headers present
+
+        try:
+            tokens_reset = datetime.fromisoformat(tokens_reset_raw)
+            requests_reset_raw = headers.get("anthropic-ratelimit-requests-reset", tokens_reset_raw)
+            requests_reset = datetime.fromisoformat(requests_reset_raw)
+
+            self._latest = QuotaSnapshot(
+                tokens_limit=int(headers.get("anthropic-ratelimit-tokens-limit", 0)),
+                tokens_remaining=int(headers.get("anthropic-ratelimit-tokens-remaining", 0)),
+                tokens_reset=tokens_reset,
+                requests_limit=int(headers.get("anthropic-ratelimit-requests-limit", 0)),
+                requests_remaining=int(headers.get("anthropic-ratelimit-requests-remaining", 0)),
+                requests_reset=requests_reset,
+                updated_at=datetime.now(timezone.utc),
+            )
+            logger.debug(
+                "Quota updated: %d tokens remaining, resets at %s",
+                self._latest.tokens_remaining,
+                self._latest.tokens_reset.isoformat(),
+            )
+        except (ValueError, TypeError) as e:
+            logger.warning("Failed to parse quota headers: %s", e)
+
+    def should_max_push(self) -> bool:
+        """True when reset is within push_within_minutes AND tokens remain."""
+        if not self._latest:
+            return False
+        now = datetime.now(timezone.utc)
+        time_until_reset = (self._latest.tokens_reset - now).total_seconds()
+        minutes_left = time_until_reset / 60
+        return (
+            0 < minutes_left <= self._push_within_minutes
+            and self._latest.tokens_remaining > 0
+        )
+
+    def status(self) -> dict:
+        """Return quota status for the /router/status endpoint."""
+        if not self._latest:
+            return {"available": False}
+        now = datetime.now(timezone.utc)
+        minutes_left = (self._latest.tokens_reset - now).total_seconds() / 60
+        return {
+            "available": True,
+            "tokens_limit": self._latest.tokens_limit,
+            "tokens_remaining": self._latest.tokens_remaining,
+            "tokens_reset": self._latest.tokens_reset.isoformat(),
+            "requests_limit": self._latest.requests_limit,
+            "requests_remaining": self._latest.requests_remaining,
+            "requests_reset": self._latest.requests_reset.isoformat(),
+            "minutes_until_reset": round(max(minutes_left, 0), 1),
+            "should_max_push": self.should_max_push(),
+            "updated_at": self._latest.updated_at.isoformat(),
+        }
