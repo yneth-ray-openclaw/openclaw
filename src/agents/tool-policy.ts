@@ -64,7 +64,7 @@ const OWNER_ONLY_TOOL_NAMES = new Set<string>(["whatsapp_login"]);
 
 const TOOL_PROFILES: Record<ToolProfileId, ToolProfilePolicy> = {
   minimal: {
-    allow: ["session_status"],
+    allow: ["session_status", "gateway"],
   },
   coding: {
     allow: ["group:fs", "group:runtime", "group:sessions", "group:memory", "image"],
