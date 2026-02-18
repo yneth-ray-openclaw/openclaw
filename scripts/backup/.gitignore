@@ -1,0 +1,23 @@
+# Environment configuration (contains secrets)
+.env
+.env.local
+
+# Backup and log files
+/backups/
+/logs/
+*.tar.xz
+openclaw-backup.log
+
+# Docker
+.dockerignore
+
+# OS
+.DS_Store
+Thumbs.db
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~

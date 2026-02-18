@@ -1,0 +1,11 @@
+# OpenClaw backup crontab
+# Format: minute hour day month weekday command
+
+# Daily backup at 2:00 AM UTC
+0 2 * * * /usr/local/bin/openclaw-backup
+
+# Weekly full rotation check every Sunday at 3:00 AM UTC
+0 3 * * 0 /usr/local/bin/openclaw-backup
+
+# Optional: backup every 6 hours (comment out if you only want daily)
+# 0 */6 * * * /usr/local/bin/openclaw-backup
