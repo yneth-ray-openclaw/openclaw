@@ -2,10 +2,10 @@
 # Format: minute hour day month weekday command
 
 # Daily backup at 2:00 AM UTC
-0 2 * * * /usr/local/bin/openclaw-backup
+0 2 * * * /usr/local/bin/openclaw-backup >> /proc/1/fd/1 2>&1
 
 # Weekly full rotation check every Sunday at 3:00 AM UTC
-0 3 * * 0 /usr/local/bin/openclaw-backup
+0 3 * * 0 /usr/local/bin/openclaw-backup >> /proc/1/fd/1 2>&1
 
 # Optional: backup every 6 hours (comment out if you only want daily)
-# 0 */6 * * * /usr/local/bin/openclaw-backup
+# 0 */6 * * * /usr/local/bin/openclaw-backup >> /proc/1/fd/1 2>&1
