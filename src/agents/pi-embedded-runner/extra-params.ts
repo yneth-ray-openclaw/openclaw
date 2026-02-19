@@ -723,10 +723,11 @@ function createZaiToolStreamWrapper(
 }
 
 /**
- * Core tools that should always be visible (NOT deferred) when using Tool Search.
+ * Default tools that should always be visible (NOT deferred) when using Tool Search.
  * All other tools will have `defer_loading: true` so Claude discovers them on-demand.
+ * Can be extended via `toolSearchVisibleTools` in model params.
  */
-const ALWAYS_VISIBLE_TOOLS = new Set([
+const DEFAULT_TOOL_SEARCH_VISIBLE_TOOLS = new Set([
   "read",
   "write",
   "edit",
@@ -740,11 +741,30 @@ const ALWAYS_VISIBLE_TOOLS = new Set([
 ]);
 
 /**
+ * Merge default visible tools with custom tools from config.
+ * Custom tools are added to the defaults (not replacing them).
+ */
+function resolveToolSearchVisibleTools(custom: unknown): Set<string> {
+  const base = new Set(DEFAULT_TOOL_SEARCH_VISIBLE_TOOLS);
+  if (Array.isArray(custom)) {
+    for (const tool of custom) {
+      if (typeof tool === "string" && tool.trim()) {
+        base.add(tool.trim());
+      }
+    }
+  }
+  return base;
+}
+
+/**
  * Create a streamFn wrapper that injects the Anthropic Tool Search Tool and
  * marks non-core tools with `defer_loading: true`. This dramatically reduces
  * input token cost by only sending ~3-5 core tool schemas instead of 25+.
  */
-function createToolSearchWrapper(baseStreamFn: StreamFn | undefined): StreamFn {
+function createToolSearchWrapper(
+  baseStreamFn: StreamFn | undefined,
+  visibleTools: Set<string>,
+): StreamFn {
   const underlying = baseStreamFn ?? streamSimple;
   return (model, context, options) => {
     const originalOnPayload = options?.onPayload;
@@ -756,7 +776,7 @@ function createToolSearchWrapper(baseStreamFn: StreamFn | undefined): StreamFn {
           // Mark non-core tools as deferred
           p.tools = (p.tools as Record<string, unknown>[]).map((tool) => ({
             ...tool,
-            defer_loading: ALWAYS_VISIBLE_TOOLS.has(tool.name as string) ? undefined : true,
+            defer_loading: visibleTools.has(tool.name as string) ? undefined : true,
           }));
           // Inject the tool search tool at the beginning
           (p.tools as unknown[]).unshift({
@@ -859,8 +879,9 @@ export function applyExtraParamsToAgent(
   // Enable Anthropic Tool Search Tool for deferred tool loading.
   // Only sends core tools upfront; Claude discovers others on-demand via BM25 search.
   if (provider === "anthropic" && merged?.toolSearch === true) {
+    const visibleTools = resolveToolSearchVisibleTools(merged?.toolSearchVisibleTools);
     log.debug(`enabling Anthropic Tool Search for ${provider}/${modelId}`);
-    agent.streamFn = createToolSearchWrapper(agent.streamFn);
+    agent.streamFn = createToolSearchWrapper(agent.streamFn, visibleTools);
   }
 
   // Work around upstream pi-ai hardcoding `store: false` for Responses API.
