@@ -296,6 +296,10 @@ const ALWAYS_VISIBLE_TOOLS = new Set([
   "exec",
   "message",
   "session_status",
+  "memory_search",
+  "gateway",
+  "cron",
+  "web_search",
 ]);
 
 /**
