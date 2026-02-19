@@ -1,0 +1,28 @@
+# pinchtab-compose.yml
+# Run: docker compose -f pinchtab-compose.yml up -d
+
+services:
+  pinchtab:
+    build: https://github.com/pinchtab/pinchtab.git#v0.4.0
+    image: pinchtab:0.4.0
+    container_name: pinchtab
+    networks:
+      - openclaw_openclaw_net
+    ports:
+      - "9867:9867"
+    environment:
+      - BRIDGE_HEADLESS=true
+      - BRIDGE_PORT=9867
+      - BRIDGE_STEALTH=light
+    volumes:
+      - pinchtab-data:/data
+    shm_size: '2gb'
+    security_opt:
+      - seccomp=unconfined
+
+networks:
+  openclaw_openclaw_net:
+    external: true
+
+volumes:
+  pinchtab-data:
