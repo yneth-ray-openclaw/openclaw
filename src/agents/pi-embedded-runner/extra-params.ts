@@ -10,6 +10,7 @@ const OPENROUTER_APP_HEADERS: Record<string, string> = {
   "X-Title": "OpenClaw",
 };
 const ANTHROPIC_CONTEXT_1M_BETA = "context-1m-2025-08-07";
+const ANTHROPIC_TOOL_SEARCH_BETA = "advanced-tool-use-2025-11-20";
 const ANTHROPIC_1M_MODEL_PREFIXES = ["claude-opus-4", "claude-sonnet-4"] as const;
 // NOTE: We only force `store=true` for *direct* OpenAI Responses.
 // Codex responses (chatgpt.com/backend-api/codex/responses) require `store=false`.
@@ -361,6 +362,11 @@ function resolveAnthropicBetas(
     } else {
       log.warn(`ignoring context1m for non-opus/sonnet model: ${provider}/${modelId}`);
     }
+  }
+
+  // Tool Search requires the advanced-tool-use beta header
+  if (extraParams?.toolSearch === true) {
+    betas.add(ANTHROPIC_TOOL_SEARCH_BETA);
   }
 
   return betas.size > 0 ? [...betas] : undefined;
