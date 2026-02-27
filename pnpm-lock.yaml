@@ -987,15 +987,6 @@ packages:
   '@eshaz/web-worker@1.2.2':
     resolution: {integrity: sha512-WxXiHFmD9u/owrzempiDlBB1ZYqiLnm9s6aPc8AlFQalq2tKmqdmMr9GXOupDgzXtqnBipj8Un0gkIm7Sjf8mw==}
 
-  '@google/genai@1.42.0':
-    resolution: {integrity: sha512-+3nlMTcrQufbQ8IumGkOphxD5Pd5kKyJOzLcnY0/1IuE8upJk5aLmoexZ2BJhBp1zAjRJMEB4a2CJwKI9e2EYw==}
-    engines: {node: '>=20.0.0'}
-    peerDependencies:
-      '@modelcontextprotocol/sdk': ^1.25.2
-    peerDependenciesMeta:
-      '@modelcontextprotocol/sdk':
-        optional: true
-
   '@google/genai@1.43.0':
     resolution: {integrity: sha512-hklCsJNdMlDM1IwcCVcGQFBg2izY0+t5BIGbRsxi2UnKi6AGKL7pqJqmBDNRbw0bYCs4y3NA7TB+fkKfP/Nrdw==}
     engines: {node: '>=20.0.0'}
@@ -6566,17 +6557,6 @@ snapshots:
   '@eshaz/web-worker@1.2.2':
     optional: true
 
-  '@google/genai@1.42.0':
-    dependencies:
-      google-auth-library: 10.6.1
-      p-retry: 4.6.2
-      protobufjs: 7.5.4
-      ws: 8.19.0
-    transitivePeerDependencies:
-      - bufferutil
-      - supports-color
-      - utf-8-validate
-
   '@google/genai@1.43.0':
     dependencies:
       google-auth-library: 10.6.1
@@ -6924,7 +6904,7 @@ snapshots:
 
   '@mariozechner/pi-agent-core@0.55.0(ws@8.19.0)(zod@4.3.6)':
     dependencies:
-      '@mariozechner/pi-ai': 0.55.0(patch_hash=fc8cf27426ac2272b2b13e9d522d19dd5afe787dc8d476f1e4443f85d15c62af)(ws@8.19.0)(zod@4.3.6)
+      '@mariozechner/pi-ai': 0.55.1(patch_hash=fc8cf27426ac2272b2b13e9d522d19dd5afe787dc8d476f1e4443f85d15c62af)(ws@8.19.0)(zod@4.3.6)
     transitivePeerDependencies:
       - '@modelcontextprotocol/sdk'
       - aws-crt
@@ -6936,7 +6916,7 @@ snapshots:
 
   '@mariozechner/pi-agent-core@0.55.1(ws@8.19.0)(zod@4.3.6)':
     dependencies:
-      '@mariozechner/pi-ai': 0.55.1(ws@8.19.0)(zod@4.3.6)
+      '@mariozechner/pi-ai': 0.55.1(patch_hash=fc8cf27426ac2272b2b13e9d522d19dd5afe787dc8d476f1e4443f85d15c62af)(ws@8.19.0)(zod@4.3.6)
     transitivePeerDependencies:
       - '@modelcontextprotocol/sdk'
       - aws-crt
@@ -6950,7 +6930,7 @@ snapshots:
     dependencies:
       '@anthropic-ai/sdk': 0.73.0(zod@4.3.6)
       '@aws-sdk/client-bedrock-runtime': 3.998.0
-      '@google/genai': 1.42.0
+      '@google/genai': 1.43.0
       '@mistralai/mistralai': 1.10.0
       '@sinclair/typebox': 0.34.48
       ajv: 8.18.0
@@ -6970,7 +6950,7 @@ snapshots:
       - ws
       - zod
 
-  '@mariozechner/pi-ai@0.55.1(ws@8.19.0)(zod@4.3.6)':
+  '@mariozechner/pi-ai@0.55.1(patch_hash=fc8cf27426ac2272b2b13e9d522d19dd5afe787dc8d476f1e4443f85d15c62af)(ws@8.19.0)(zod@4.3.6)':
     dependencies:
       '@anthropic-ai/sdk': 0.73.0(zod@4.3.6)
       '@aws-sdk/client-bedrock-runtime': 3.998.0
@@ -6998,7 +6978,7 @@ snapshots:
     dependencies:
       '@mariozechner/jiti': 2.6.5
       '@mariozechner/pi-agent-core': 0.55.0(ws@8.19.0)(zod@4.3.6)
-      '@mariozechner/pi-ai': 0.55.0(ws@8.19.0)(zod@4.3.6)
+      '@mariozechner/pi-ai': 0.55.1(patch_hash=fc8cf27426ac2272b2b13e9d522d19dd5afe787dc8d476f1e4443f85d15c62af)(ws@8.19.0)(zod@4.3.6)
       '@mariozechner/pi-tui': 0.55.0
       '@silvia-odwyer/photon-node': 0.3.4
       chalk: 5.6.2
@@ -10554,7 +10534,7 @@ snapshots:
       '@line/bot-sdk': 10.6.0
       '@lydell/node-pty': 1.2.0-beta.3
       '@mariozechner/pi-agent-core': 0.55.0(ws@8.19.0)(zod@4.3.6)
-      '@mariozechner/pi-ai': 0.55.0(ws@8.19.0)(zod@4.3.6)
+      '@mariozechner/pi-ai': 0.55.0(patch_hash=fc8cf27426ac2272b2b13e9d522d19dd5afe787dc8d476f1e4443f85d15c62af)(ws@8.19.0)(zod@4.3.6)
       '@mariozechner/pi-coding-agent': 0.55.0(ws@8.19.0)(zod@4.3.6)
       '@mariozechner/pi-tui': 0.55.0
       '@mozilla/readability': 0.6.0
